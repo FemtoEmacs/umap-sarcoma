@@ -1,0 +1,165 @@
+\documentclass[17pt]{extarticle}
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{xparse}
+\renewcommand{\small}{\fontsize{16}{20}\selectfont}
+\renewcommand{\footnotesize}{\fontsize{16}{20}\selectfont}
+\NewDocumentCommand{\ojo}{g}{}
+
+\definecolor{deepblue}{HTML}{173B57}
+\definecolor{softblue}{HTML}{EAF2F7}
+\hypersetup{colorlinks=true,linkcolor=deepblue,citecolor=deepblue,urlcolor=deepblue}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\renewcommand{\arraystretch}{1.15}
+
+\title{An Artificial Intelligence Skill for Building UMAP Atlases of Multidimensional Medical Evidence: A Sarcoma Pilot}
+\author{%
+Amanda Santos\textsuperscript{1}, Alina Santos\textsuperscript{2},\\
+Luciano Lima\textsuperscript{3}, Marcus Santos\textsuperscript{4},\\
+Alex Santos\textsuperscript{3}, Antonio Eduardo Costa\textsuperscript{3}\\[0.75em]
+\small \textsuperscript{1}Federal University of Catalão, Catalão, Brazil\\
+\small \textsuperscript{2}McMaster University, Hamilton, Ontario, Canada\\
+\small \textsuperscript{3}Federal University of Uberlândia, Uberlândia, Brazil\\
+\small \textsuperscript{4}Toronto Metropolitan University, Toronto, Ontario, Canada
+}
+\date{Draft of \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+When consulting clinical trials and meta-analyses, oncologists consider many dimensions simultaneously: survival progress, therapy, endpoint, primary event, cohort, observation window, risk-set support, molecular context, and the shapes of time-to-event plots. Conventional tables, forest plots, and isolated Kaplan--Meier panels separate these relationships and make it difficult to see which studies resemble one another as complete bodies of evidence. Uniform manifold approximation and projection (UMAP) is well suited to representing such high-dimensional evidence on a two-dimensional map while retaining the underlying attributes for inspection.
+
+We present an artificial-intelligence-assisted, reproducible skill for constructing UMAP atlases of medical studies. The workflow converts auditable evidence records into endpoint-aware, multiscale numerical profiles; applies transformations appropriate to each feature; creates a fixed UMAP embedding; and provides interactive inspection of each point, including its parent study and time-to-event curve. The pilot atlas spans four broad sarcoma types and contains 600 profiles derived from 20 evidence curves or strata, represented by 23 dimensions. Survival progress has a privileged role: overall survival and death are primary for malignant sarcomas, whereas progression control is primary for desmoid tumor because disease-specific death is uncommon. Therapy, study identity, and curve-acquisition method remain metadata rather than inputs that predetermine the geometry.
+
+The pilot produced connected, clinically interpretable neighborhoods and showed that retaining an unsquashed survival-progress dimension can distinguish soft-tissue sarcoma from gastrointestinal stromal tumor within a shared population study. The map is an evidence-navigation instrument, not a treatment ranking, causal model, or substitute for formal meta-analysis. Artificial intelligence assists extraction, representation, testing, and presentation; clinicians verify the evidence and interpretation. This approach allows readers to see how close or distant medical studies are from one another without discarding the multidimensional context that produced those relationships.
+\end{abstract}
+
+\textbf{Keywords:} sarcoma; UMAP; clinical evidence visualization; survival progress; overall survival; Kaplan--Meier; artificial intelligence; reproducible research
+
+\section{Introduction}
+
+Sarcoma is a heterogeneous family of mesenchymal tumors encompassing soft-tissue sarcoma, bone sarcoma, gastrointestinal stromal tumor (GIST), and desmoid tumor. Across this family, clinicians integrate anatomical imaging, tissue behavior, molecular findings, treatment exposure, and time-to-event outcomes. Quantitative magnetic-resonance T2 mapping, studied by Souza et al. specifically in desmoid tumors, can register tissue response more sensitively than maximum diameter in a small longitudinal cohort \citep{souza2023t2}. We treat this quantitative imaging method as a potentially important diagnostic and response dimension for a broader sarcoma evidence atlas. That broader sarcoma application is our inference; it was neither claimed nor validated by Souza et al.
+
+Desmoid tumors are nonmetastatic, locally aggressive neoplasms with variable growth, spontaneous stabilization, and treatment response. GIST is malignant and molecularly distinct, with survival patterns that have changed substantially across treatment eras. These examples illustrate the breadth of sarcoma and why one universal endpoint is insufficient. In desmoid tumor, progression control is usually more informative than death; in GIST and other malignant sarcomas, overall survival remains central. Cryoablation case-series evidence in desmoid tumor emphasizes local tumor control and response in heavily treated patients \citep{liu2022cryo}. Quantitative imaging and local-response studies motivate a broader view of treatment response, while neither supplies the event and censoring information required to manufacture a Kaplan--Meier distribution.
+
+Systemic-therapy evidence provides time-to-event curves with different designs and follow-up structures. A multi-institutional retrospective comparison directly evaluated sorafenib and anthracycline-containing regimens and reported progression-free survival (PFS) using Kaplan--Meier methods \citep{costa2025sorafenib}. A Canadian multicenter study reported real-world experience with pazopanib and sorafenib \citep{noujaim2024realworld}. Randomized trials established PFS evidence for sorafenib and nirogacestat against placebo \citep{gounder2018sorafenib,gounder2023nirogacestat}, while the noncomparative randomized phase 2 DESMOPAZ trial evaluated pazopanib and methotrexate--vinblastine \citep{toulmonde2019desmopaz}. Their graphical outputs are scientifically valuable, yet they are not exchangeable patient-level datasets.
+
+This project asks whether curve morphology can be represented as an auditable, exploratory atlas. UMAP is attractive because it can preserve local neighborhoods in high-dimensional data as a two-dimensional map and support interactive inspection \citep{mcinnes2018umap}. A visually persuasive projection is insufficient by itself. The representation must prevent therapy labels from determining the geometry, distinguish reported observations from pixel estimates, retain risk-set support, and evaluate stability without splitting dependent windows from the same study across training and validation partitions.
+
+For malignant sarcoma, overall survival and death must remain central rather than treating progression-free survival as a universal endpoint. A population analysis of 21,948 patients with soft-tissue sarcoma and 3,716 patients with GIST found stagnant median survival for soft-tissue sarcoma alongside improvement for GIST, illustrating why endpoint choice and sarcoma subtype both matter \citep{hardy2025sts}.
+
+\section{Objectives}
+
+The primary objective is to construct a reproducible two-dimensional atlas in which survival progress occupies a privileged clinical dimension: change in overall survival across calendar eras for malignant sarcomas and change in progression control for desmoid tumor. Secondary objectives are to represent disease-appropriate events, response, molecular and treatment context, identify neighborhoods corresponding to improving or stagnant outcomes, quantify embedding stability under plausible reconstruction error, and determine which visible regions remain stable when individual studies are held out.
+
+The atlas is descriptive. It will not rank therapies, estimate causal treatment effects, pool hazard ratios, or substitute for a conventional meta-analysis. Any later quantitative synthesis will use verified study-level estimates and design-appropriate survival-analysis software.
+
+\section{Evidence sources}
+
+\begin{table}[ht]
+\centering
+\caption{Required citation set and its role in the project. Inclusion in this table does not imply inclusion in the UMAP numerical input.}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.5cm}>{\raggedright\arraybackslash}p{3.7cm}X}
+\toprule
+Source & Evidence type & Prespecified role \\
+\midrule
+Souza et al. \citep{souza2023t2} & Retrospective quantitative MRI study & Motivates response representations beyond diameter; contextual evidence only unless valid time-to-event data become available. \\
+Costa et al. \citep{costa2025sorafenib} & Retrospective multi-institution comparison & Supplies sorafenib and anthracycline PFS curves and censoring information for verified graphical extraction. \\
+Liu et al. \citep{liu2022cryo} & Single-institution cryoablation case series & Establishes local-intervention context and illustrates why response proportions cannot be converted into survival curves. \\
+Noujaim et al. \citep{noujaim2024realworld} & Multicenter real-world study & Supplies pazopanib and sorafenib evidence and broadens the systemic-therapy set. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Additional primary curves will be drawn from the randomized sorafenib and DeFi nirogacestat trials and from DESMOPAZ \citep{gounder2018sorafenib,gounder2023nirogacestat,toulmonde2019desmopaz}. Each report will be treated as a separate provenance unit. Multiple reports of the same trial will be linked before analysis to avoid duplicate evidence.
+
+\section{Methods}
+
+\subsection{Eligibility and extraction}
+
+Eligible numerical inputs are PFS or explicitly compatible time-to-event curves for histologically confirmed desmoid tumors with a defined time origin, event definition, cohort denominator, and graphical or tabular survival information. Overall response rates, waterfall plots, longitudinal MRI measurements, and isolated fixed-time PFS percentages will be recorded as contextual evidence and excluded from curve geometry unless a valid survival function is also available.
+
+Author-supplied coordinates, digitized graphical coordinates, and curves reconstructed from published summaries are interchangeable inputs to the descriptive shape representation after the same endpoint-specific normalization. Published numbers at risk, censor marks, fixed-time estimates, event totals, hazard ratios, and confidence intervals will be transcribed when available. The database will retain the acquisition type and source locator solely for auditing. When pseudo-individual records are reconstructed, the method will be recorded \citep{guyot2012ipd}; reconstructed records will not be labeled as original participant data.
+
+Every curve will be stored in a human-readable S-expression containing citation, endpoint definition, cohort, treatment, comparator, axes, step coordinates, censor marks, numbers at risk, uncertainty, extraction method, and source locator. Each numerical field will carry one of three statuses: \emph{reported}, \emph{digitized}, or \emph{derived}.
+
+\subsection{Multiscale representation}
+
+One UMAP point will represent part of a cohort's survival curve. We will examine each survival curve over periods of 3, 6, 12, and 18 months whenever the study follows patients long enough. Each period must contain at least three usable measurements and enough patients still being followed to support the estimate. Overlapping periods from the same curve remain members of a single study group for resampling and validation.
+
+The high-dimensional vector will contain:
+\begin{enumerate}
+  \item survival probabilities sampled at fixed relative positions within the window;
+  \item cumulative hazard, $H(t)=-\log S(t)$, and nonnegative local hazard increments;
+  \item absolute and relative survival loss, largest step, drop count, plateau duration, local slope, and curvature;
+  \item censoring count or density when recoverable;
+  \item numbers at risk at the window start, midpoint, and end, plus the fraction of the original cohort remaining;
+  \item absolute time, relative follow-up position, and window width.
+\end{enumerate}
+
+The transform $\log_{10}(1+x)$ will be applied to nonnegative counts, durations, risk-set sizes, and magnitudes with long right tails. Survival probabilities remain on their native zero-to-one scale; cumulative hazard uses its defining logarithmic transform. Continuous features will be centered and scaled using parameters learned from the training studies only. Near-zero-variance features will be removed. Principal component analysis will retain up to 30 components, bounded by the number of independent input dimensions and selected using a prespecified explained-variance threshold. UMAP will then generate two neighborhood coordinates with a fixed random seed. Therapy, study, author, randomized status, and publication year will be withheld from the embedding vector and used only as metadata.
+
+\subsection{Density regions and visual design}
+
+The interactive plot will combine small semi-transparent points, density contours, and visible center points, following the successful visual grammar of single-cell UMAP displays. Users will be able to color the same fixed embedding by therapy, study, active versus comparator arm, study design, absolute time, survival probability, risk-set support, censoring density, window width, and uncertainty. Tooltips will link each point to its parent curve and source locator.
+
+Density contours summarize the distribution of derived windows and do not denote biological cell types, latent patient subgroups, or statistically validated treatment classes. Region names will describe observable curve morphology only.
+
+\subsection{Validation and sensitivity analyses}
+
+Validation will use leave-one-study-out partitions. All windows from a report, trial, or linked family of reports will remain in the same partition. Prespecified checks include repeated UMAP seeds, neighborhood-overlap stability, alternative window grids, and omission of low-risk-set tails. Curve-acquisition type will not enter the embedding or the primary display. It may be examined later as an audit-only sensitivity analysis to test whether author-supplied, digitized, and reconstructed inputs occupy systematically different neighborhoods. A therapy-colored map will be interpreted alongside maps colored by study and design, because study-specific endpoint definitions and reporting practices can create apparent treatment regions.
+
+\subsection{AI augmentation and human verification}
+
+Generative AI will assist bibliographic triage, structured extraction drafts, discrepancy detection, and code review. Final manuscript language editing will instead use Grammarly's rule-based checker, with its generative rewriting features disabled, so that corrections operate on the authors' prose without replacing their writing voice, following Liu's recommendation \citep{liu2024grammarly}. Generative AI will not approve eligibility, invent missing coordinates, adjudicate clinical meaning, edit the final manuscript prose, or serve as an author. Two human reviewers will verify material extractions against the source. A qualified clinical or systematic-review expert must approve endpoint compatibility and the final interpretation before submission. All prompts, model/version identifiers, source hashes, code, and reviewer decisions will be retained in the audit bundle. This workflow aligns with the journal's emphasis on meaningful AI contribution, reproducibility, and human-verified validation.
+
+\section{Planned outputs}
+
+The distributable project will contain the source S-expressions, provenance ledger, feature builder, tests, generated HTML atlas, static publication figure, and this manuscript. The primary figure will show one fixed embedding in four panels colored by therapy, study, local survival, and risk-set support. Supplementary figures will report leave-one-study-out and digitization-perturbation analyses. A table will enumerate every included curve and identify the availability of risk tables, censor marks, confidence intervals, and original data.
+
+\section{Discussion}
+
+The proposed atlas addresses a narrow methodological gap: published survival curves contain shape and support information that is difficult to compare across many panels. Multiscale windows can provide enough observations for a visually continuous map, while grouped validation recognizes that those observations are dependent. Withholding therapy, study, and acquisition labels from the embedding reduces circular separation. Provenance remains queryable in the audit record without defining distances or the primary visual regions.
+
+Several limitations are unavoidable. Pixel digitization is approximate. Numbers at risk may be sparse, censor marks may overlap, endpoints and assessment schedules differ, and retrospective cohorts are not exchangeable with randomized trials. UMAP axes have no direct clinical units, global distances can be misleading, and density contours can amplify visually compelling artifacts. The project will therefore avoid efficacy rankings and preserve conventional curve displays beside the atlas.
+
+The four required contextual papers broaden the scientific purpose of the project. T2 mapping demonstrates the value of quantitative tissue-response measurements \citep{souza2023t2}; cryoablation illustrates clinically important local response evidence \citep{liu2022cryo}; the sorafenib--anthracycline comparison supplies directly relevant Kaplan--Meier morphology \citep{costa2025sorafenib}; and the Canadian multicenter study adds pazopanib to the systemic-therapy landscape \citep{noujaim2024realworld}. Their differing outputs reinforce the need to represent evidence faithfully rather than forcing every study into one estimator.
+
+\section{Conclusions}
+
+This protocol specifies a portable, human-verified, AI-augmented UMAP atlas of published desmoid-tumor time-to-event evidence. Its principal innovation is a multiscale numerical representation that can produce interpretable density regions without using therapy names to construct them. Scientific value will depend on transparent provenance, study-grouped validation, and continued access to the conventional curves underlying every projected point.
+
+\section*{Declarations}
+
+\textbf{Ethics approval:} The project uses published aggregate information. Any future use of nonpublic participant-level data will require the relevant approvals and data-use agreements.
+
+\textbf{Data availability:} The analysis bundle will distribute only data that can be lawfully redistributed. Digitized coordinates, provenance, code, and hashes will be released with the manuscript where permitted.
+
+\textbf{Conflicts of interest:} To be completed by every author before submission.
+
+\textbf{Funding:} To be completed before submission.
+
+\textbf{Author contributions:} To be completed and approved by all authors before submission.
+
+\textbf{AI disclosure:} Codex genAI assisted source discovery, manuscript scaffolding, and reproducibility planning. All scientific claims, numerical extractions, code outputs, and interpretations require human source verification. genAI is not an author.
+
+\section*{Human verification checklist before submission}
+
+\textbf{Do you want to review the annotations individually? Y/N} A ``Y'' decision opens source-by-source verification; ``N'' records human bulk approval of the proposed evidence representation and answers as written. Bulk approval does not constitute physician selection of a generated clinical conclusion.
+
+The responsible reviewers must confirm the author list and affiliations; verify all four required citations; inspect every included curve, censor mark, and risk table; approve endpoint compatibility; review the pazopanib, sorafenib, nirogacestat, and anthracycline therapy labels; reproduce the feature build and UMAP; inspect sensitivity analyses; complete declarations; and confirm the final journal article type and formatting requirements.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

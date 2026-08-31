@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use the SF99 model, cite the original model paper."
+title: "ionospheric-vdrift reproducibility bundle"
+type: software
+authors:
+  - family-names: Scherliess
+    given-names: Ludger
+  - family-names: Fejer
+    given-names: Bela G.
+references:
+  - type: article
+    title: "Radar and satellite global equatorial F region vertical drift model"
+    authors:
+      - family-names: Scherliess
+        given-names: Ludger
+      - family-names: Fejer
+        given-names: Bela G.
+    journal: "Journal of Geophysical Research: Space Physics"
+    volume: 104
+    issue: A4
+    pages: 6829-6842
+    year: 1999
+    doi: 10.1029/1999JA900025
+
