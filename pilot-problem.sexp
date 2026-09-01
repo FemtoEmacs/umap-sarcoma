@@ -1,6 +1,14 @@
 (:format :umap-problem
  :version 1
  :title "Pilot UMAP of sarcoma evidence statistics"
+ :preparation (:kind :evidence-windows
+               :source "data/pilot-landmarks.sexp"
+               :schema evidence-windows/1
+               :temporal-profile-count 10
+               :window-widths (0.125 0.25 0.50)
+               :survival-transform :identity
+               :include-survival-progress true
+               :use-typed-transforms false)
  :data (:file "data/pilot-windows.sexp"
         :records-key :records
         :id-field :id
@@ -13,6 +21,10 @@
         :density-surface true :density-bandwidth 58 :density-thresholds 10
         :density-opacity 0.18 :density-color "data" :density-color-bands 7
         :point-radius 6)
+ :scoring (:label-field :sarcoma-type :beta 1.0
+           :output "output/pilot-problem-score.sexp"
+           :clustering (:algorithm :dbscan :minimum-points 5
+                        :epsilon :automatic))
  :views ((:field :sarcoma-type :label "Sarcoma type" :type "categorical")
          (:field :window-scale :label "Window scale" :type "categorical")
          (:field :therapy :label "Therapy" :type "categorical")

@@ -1,5 +1,7 @@
 ;;;; General manifest-driven UMAP page builder. SBCL; no Quicklisp.
 
+(defvar *build-umap-run-main* t)
+
 (defparameter *script-directory*
   (make-pathname :name nil :type nil :defaults *load-truename*))
 
@@ -482,4 +484,5 @@
        "Usage: sbcl --script build-umap.lisp PROBLEM-DIRECTORY-OR-FILE OUTPUT.html"))
     (build-umap-html (first args) (second args))))
 
-(main)
+(when *build-umap-run-main*
+  (main))

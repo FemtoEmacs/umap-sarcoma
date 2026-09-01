@@ -1,114 +1,248 @@
-# ionospheric-vdrift
+# Sarcoma evidence UMAP
 
-Reproducible Common Lisp implementation and evaluation material for the
-Scherliess--Fejer 1999 (SF99) empirical model of quiet-time equatorial
-F-region vertical plasma drift.
+This repository builds interactive UMAPs of sarcoma clinical-evidence records.
+The published `index.html` contains 600 observations derived from survival
+curves and can color the same map by sarcoma type, therapy, study, time window,
+and survival measurements.
 
-The repository also contains a general manifest-driven interactive UMAP
-builder and an example based on historical Jicamarca observations. Open
-`index.html` in a current browser to see the published map, change its
-coloring, and inspect individual observations.
-
-## Scope
-
-SF99 estimates vertical plasma drift in metres per second from local time,
-geographic longitude, day of year, and daily F10.7. It is a quiet-time
-climatology. It does not calculate the complete state of the ionosphere or
-explicit storm-time prompt-penetration and disturbance-dynamo responses.
+The scientific preparation, UMAP calculation, cluster discovery, and scoring
+programs use dependency-free Common Lisp. The generated page uses pinned
+browser modules for its interactive display.
 
 ## Requirements
 
-- A current web browser for `index.html`.
-- Internet access while viewing the map. The page imports pinned D3 7.9.0 and
-  `umap-js` 1.3.3 browser modules from `esm.sh`.
-- SBCL 2.x to run the scientific code, rebuild the map, and run the tests.
+- SBCL 2.x
+- A current web browser
+- Internet access while viewing generated HTML, because the page imports
+  `umap-js` 1.3.3 and D3 7.9.0 from `esm.sh`
 
-The repository uses no Quicklisp, ASDF system, Python package, package manager,
-or external numerical library. The test framework, coefficients, processed
-UMAP observations, and reference outputs are included.
+No Quicklisp, ASDF system, Python, Node.js, npm, or external numerical library
+is required.
 
-## Evaluate SF99
+Run the commands below from the repository root:
 
-Start SBCL from the repository root and load the model:
+```sh
+cd ~/umap-sarcoma
+```
+
+## Build the main sarcoma UMAP
+
+The generated evidence records are stored in the repository. Regenerate them
+after changing the source evidence or preparation settings:
+
+```sh
+sbcl --script prepare-umap-data.lisp pilot-problem.sexp
+```
+
+The command reads the source, destination, window settings, and output schema
+from `pilot-problem.sexp`. It writes the data file declared by `:data :file`,
+which is `data/pilot-windows.sexp` for this problem. Build the interactive page
+from the same manifest:
+
+```sh
+sbcl --script build-umap.lisp pilot-problem.sexp index.html
+```
+
+Open `index.html` in a browser. The browser calculates the UMAP with the
+parameters and fixed seed declared in `pilot-problem.sexp`. The current
+manifest uses 300 neighbors, a minimum distance of 0.72, 500 epochs, and seed
+20260831.
+
+To calculate the same scientific object in Common Lisp, discover clusters,
+classify them by sarcoma type, and score the partition, run:
+
+```sh
+sbcl --script score-umap.lisp pilot-problem.sexp
+```
+
+This is a general manifest-driven command. It does not contain the pilot data
+path, feature count, label field, or UMAP parameters. For this run,
+`pilot-problem.sexp` declares `data/pilot-windows.sexp` under `:data`. Both
+`build-umap.lisp` and `score-umap.lisp` resolve that path relative to the
+manifest and use the same dataset reader and `:embedding` declaration.
+
+The manifest's `:scoring` section declares the medical label, output file,
+V-measure beta, and DBSCAN settings. The command constructs whatever feature
+array the manifest describes, calculates the two-dimensional UMAP, discovers
+and classifies clusters, and writes the coordinate array, assignments,
+classifications, and scores to the declared output file.
+
+Output names follow the manifest name. For example, `pilot-problem.sexp`
+writes `output/pilot-problem-score.sexp`. When `:scoring` does not declare an
+`:output`, the scorer automatically uses `output/MANIFEST-NAME-score.sexp`.
+
+The implementation in `src/common-lisp-umap.lisp` uses exact nearest
+neighbors, smooth k-nearest-neighbor distances, fuzzy-set union, and stochastic
+layout optimization. The complete internal result also retains the neighbor
+arrays, local distance parameters, and fuzzy graph. The saved result is kept
+smaller because the coordinates and fixed parameters are sufficient to repeat
+cluster discovery and scoring.
+
+`src/embedding-clusters.lisp` applies DBSCAN to standardized UMAP coordinates.
+Its default epsilon is selected from the knee of the 5-neighbor distance
+curve. DBSCAN cluster number `-1` means noise. Classification does not alter
+the discovered clusters: it reports each cluster's size, dominant medical
+label, label counts, and purity.
+
+The manifest also declares:
+
+- the input file and embedding vector;
+- required and unique fields;
+- standardization;
+- density-contour settings;
+- color views;
+- tooltip fields and Kaplan-Meier plots.
+
+## Build the molecular-dimensions UMAP
+
+The molecular experiment adds eight declared molecular-context indicators to
+the survival-centered representation:
+
+```sh
+sbcl --script prepare-umap-data.lisp molecdim-problem.sexp
+sbcl --script build-umap.lisp molecdim-problem.sexp molecdim.html
+```
+
+The molecular manifest declares its source evidence, molecular annotation
+file, window settings, and generated data path. The first command writes
+`data/molecdim-windows.sexp`. The second command builds `molecdim.html`.
+
+## Build another manifest
+
+The general command is:
+
+```sh
+sbcl --script build-umap.lisp PROBLEM-DIRECTORY-OR-FILE OUTPUT.html
+```
+
+A manifest file uses the `:umap-problem` format shown in
+`pilot-problem.sexp`. Relative data paths are resolved from the manifest's
+directory. The builder reads and validates the data, embeds it as JSON, and
+writes the HTML. UMAP coordinates are then calculated in the browser.
+
+## Score a labeled partition with V-measure
+
+`src/v-measure.lisp` is self-contained ANSI Common Lisp. It uses no other
+project source file and no external package. It calculates:
+
+- the label-by-cluster contingency array;
+- homogeneity;
+- completeness;
+- weighted V-measure.
+
+The complete scorer consumes the same manifest and records as the HTML
+builder:
+
+| Program | Input |
+| --- | --- |
+| `build-umap.lisp` | Manifest plus evidence records; the browser calculates coordinates |
+| `score-umap.lisp` | Manifest plus evidence records; Common Lisp calculates coordinates, clusters, classifications, and score |
+| `v-measure.lisp` | `N x 2` coordinate array, `N` medical labels, and `N` cluster assignments |
+
+V-measure compares known medical labels with cluster assignments. It does not
+infer clusters from coordinates. `embedding-clusters.lisp` performs that
+separate step so its algorithm and parameters remain visible.
+
+Start SBCL and load the scorer:
 
 ```lisp
-(load "src/sf99-iri.lisp")
-(defparameter *coefficients*
-  (fejer-sf99-read-data "data/sf99-iri-coefficients.sexp"))
-(fejer-sf99-drift-from-data *coefficients* 19.5 283.0 80.0 140.0)
+(load "src/v-measure.lisp")
 ```
 
-The arguments after the coefficient data are local time in hours, east
-longitude in degrees, day of year, and daily F10.7. The returned value is
-vertical drift in metres per second.
+Create one input object. Every row in the coordinate array must correspond to
+the label and cluster value at the same position:
 
-## Rebuild the UMAP page
+```lisp
+(defparameter *umap-to-score*
+  (make-umap-score-input
+   #2A((0.0d0 0.0d0)
+       (0.1d0 0.0d0)
+       (2.0d0 2.0d0)
+       (2.1d0 2.0d0))
+   #(:soft-tissue :soft-tissue :gist :gist)
+   #(0 0 1 1)))
+```
 
-From the repository root:
+Calculate the score:
+
+```lisp
+(defparameter *v-result* (score-umap-clusters *umap-to-score*))
+
+(umap-v-measure-result-homogeneity *v-result*)
+(umap-v-measure-result-completeness *v-result*)
+(umap-v-measure-result-v-measure *v-result*)
+(umap-v-measure-result-contingency *v-result*)
+```
+
+The default `beta` is 1.0, which balances homogeneity and completeness. A
+larger value gives more weight to completeness and therefore gives a stronger
+penalty when one medical label is fragmented across several clusters:
+
+```lisp
+(score-umap-clusters *umap-to-score* :beta 2.0d0)
+```
+
+The coordinate array is retained in the scoring input for the later cluster
+classification stage. The present V-measure calculation uses the label and
+cluster vectors after validating that all three inputs describe the same
+number of observations.
+
+## Tests
+
+Run the V-measure tests alone:
 
 ```sh
-sbcl --script build-umap.lisp examples/jicamarca-sexpr output/jicamarca.html
+sbcl --script vendor/test-cases/run-tests.lisp tests/v-measure-tests.lisp
 ```
 
-The builder accepts manifest directories for S-expression, CSV, multiscale
-contour, and H5AD examples. Relative data paths are resolved from each
-manifest. The H5AD adapter requires the `h5dump` executable on `PATH`; the
-other examples need only SBCL. The generated pages use a fixed browser-side
-pseudorandom seed for UMAP.
-
-To rebuild the leave-campaign-out CINEMA-OT annotations used by the Jicamarca
-UMAP:
+Run the Common Lisp UMAP and clustering tests alone:
 
 ```sh
-sbcl --script build-causal-effects.lisp
+sbcl --script vendor/test-cases/run-tests.lisp tests/common-lisp-umap-tests.lisp
 ```
 
-Its Common Lisp implementation and processed observations are contained in
-this repository.
-
-## Test
-
-From the repository root:
+Run the complete dependency-free Common Lisp suite:
 
 ```sh
 sbcl --script tests/run-all.lisp
+```
+
+Run the general UMAP-builder tests:
+
+```sh
 sbcl --script tests/general-umap-tests.lisp
 ```
 
-The suite checks the Common Lisp sources, verifies all 624 coefficients, and
-compares the port against 450 outputs from the compiled official IRI-2020
-`VDRIFT` routine with a tolerance of 0.000005 m/s. It also rebuilds and checks
-the interactive UMAP.
+The V-measure suite checks the published reference example, perfect
+partitions, fragmentation, beta weighting, permutation invariance, symmetry,
+contingency totals, invalid input, and score bounds.
 
-## Repository layout
+## Main files
 
-- `index.html` -- published interactive UMAP for GitHub Pages
-- `build-umap.lisp` -- general manifest-driven UMAP builder
-- `build-causal-effects.lisp` -- leave-campaign-out causal annotations
-- `examples/` -- executable S-expression, CSV, contour, and H5AD examples
-- `output/` -- generated example pages
-- `src/` -- dependency-free SF99 implementation and figure calculation
-- `data/` -- SF99 reference material and processed UMAP inputs
-- `tests/` -- one-command scientific and reproducibility tests
-- `tools/` -- repository-contained data conversion utility
-- `umap/` -- UMAP builder, processed observations, template, and provenance
-- `vendor/test-cases/` -- dependency-free Common Lisp test runner
-
-## Scientific provenance
-
-SF99 was published as:
-
-L. Scherliess and B. G. Fejer, "Radar and satellite global equatorial F region
-vertical drift model," *Journal of Geophysical Research: Space Physics*, 104,
-6829--6842 (1999). DOI: <https://doi.org/10.1029/1999JA900025>.
-
-The implementation is a direct Common Lisp port of the SF99 `VDRIFT` routine
-retained in the official IRI-2020 distribution. See the metadata in the
-coefficient and oracle S-expressions and `umap/DATA-PROVENANCE.md` for source
-hashes, processing history, and limitations.
+- `pilot-problem.sexp` — manifest for the published sarcoma evidence UMAP
+- `data/pilot-landmarks.sexp` — source survival landmarks
+- `prepare-umap-data.lisp` — prepares evidence data from any supported manifest
+- `build-evidence-data.lisp` — compatibility name for manifest-driven preparation
+- `data/pilot-windows.sexp` — generated main-map records
+- `build-umap.lisp` — manifest-driven HTML builder
+- `score-umap.lisp` — general manifest-driven UMAP, cluster, and score command
+- `src/general-umap.template` — interactive browser template
+- `index.html` — generated main sarcoma UMAP
+- `molecdim-problem.sexp` — molecular-dimensions manifest
+- `data/molecular-contexts.sexp` — declared molecular annotations and features
+- `build-molecdim-data.lisp` — compatibility name for manifest-driven preparation
+- `molecdim.html` — generated molecular-dimensions UMAP
+- `src/v-measure.lisp` — dependency-free V-measure implementation
+- `src/common-lisp-umap.lisp` — dependency-free UMAP implementation
+- `src/embedding-clusters.lisp` — DBSCAN discovery and label classification
+- `run-sarcoma-umap.lisp` — backward-compatible shortcut for the pilot manifest
+- `tests/v-measure-tests.lisp` — V-measure behavioral and invariant tests
+- `tests/common-lisp-umap-tests.lisp` — UMAP and clustering tests
+- `vendor/test-cases/` — dependency-free Common Lisp test runner
+- `paper/` — manuscript and supporting notes
 
 ## genAI disclosure
 
-Codex genAI helped organize the reproducibility bundle and documentation.
-Scientific claims and numerical behavior are checked against cited primary
-sources and executable reference tests.
+Codex genAI assisted with implementation, testing, documentation, and the
+interactive display. The repository keeps scientific inputs, transformations,
+parameters, and executable tests available for review.

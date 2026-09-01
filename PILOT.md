@@ -27,7 +27,7 @@ rather than being silently treated as death evidence.
 Build from the repository root:
 
 ```sh
-sbcl --script build-evidence-data.lisp
+sbcl --script prepare-umap-data.lisp pilot-problem.sexp
 sbcl --script build-umap.lisp pilot-problem.sexp index.html
 sbcl --script tests/evidence-umap-tests.lisp
 ```

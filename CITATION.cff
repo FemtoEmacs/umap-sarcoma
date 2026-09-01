@@ -1,24 +1,9 @@
 cff-version: 1.2.0
-message: "If you use the SF99 model, cite the original model paper."
-title: "ionospheric-vdrift reproducibility bundle"
+message: "If you use this software, please cite the repository and the accompanying manuscript."
+title: "UMAP Sarcoma: dependency-free Common Lisp evidence mapping and scoring"
 type: software
 authors:
-  - family-names: Scherliess
-    given-names: Ludger
-  - family-names: Fejer
-    given-names: Bela G.
-references:
-  - type: article
-    title: "Radar and satellite global equatorial F region vertical drift model"
-    authors:
-      - family-names: Scherliess
-        given-names: Ludger
-      - family-names: Fejer
-        given-names: Bela G.
-    journal: "Journal of Geophysical Research: Space Physics"
-    volume: 104
-    issue: A4
-    pages: 6829-6842
-    year: 1999
-    doi: 10.1029/1999JA900025
-
+  - family-names: Costa Pereira
+    given-names: Antonio Eduardo
+repository-code: "https://github.com/FemtoEmacs/umap-sarcoma"
+url: "https://femtoemacs.github.io/umap-sarcoma/"

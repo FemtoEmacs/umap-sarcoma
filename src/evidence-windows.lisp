@@ -147,6 +147,7 @@
                   collect (if (null value) median value))))))
 
 (defun evidence-window-records (curve curve-index)
+  (declare (ignore curve-index))
   (let* ((maximum (evidence-plist curve :maximum-months))
          (curve-points (evidence-curve-points curve 41)))
     (loop for window-index from 0 below *evidence-temporal-profile-count*
