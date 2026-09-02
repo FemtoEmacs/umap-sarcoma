@@ -1,0 +1,283 @@
+\documentclass[12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+\title{A Common Lisp Transformer Trainer for a Fixed UMAP Atlas}
+\author{}
+\date{\today}
+
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document describes a small, dependency-free Common Lisp Transformer that
+learns to place new medical-evidence observations in an existing two-dimensional
+UMAP atlas.  AWRS--SMC first searches for a useful feature representation and a
+winning UMAP.  The trainer then learns the numerical mapping from the selected
+features to the coordinates preserved from that winning Common Lisp run.  The
+current implementation trains the entire encoder by backpropagation, serializes
+the model and preprocessing information as an S-expression, and predicts a new
+location without fitting UMAP again.  Results reported here are a technical pilot,
+not evidence that the learned atlas has been clinically validated.
+\end{abstract}
+
+\section{Purpose and scope}
+
+Ordinary UMAP is non-parametric in this project: adding observations requires the
+embedding to be recomputed if coordinates for the new observations are needed.  A
+parametric mapping instead learns a function
+\[
+  f_{\theta}:\mathbb{R}^{6}\longrightarrow\mathbb{R}^{2},
+\]
+where the input contains the six features selected by AWRS--SMC and the output is
+a location in the fixed winning atlas.  Once $f_{\theta}$ has been trained, a new
+observation can be projected with one forward pass.
+
+This separation is important.  AWRS--SMC remains responsible for searching over
+feature inclusion, transformations, UMAP geometry, clustering quality, and the
+adjacency preference.  The Transformer does not repeat that search.  It distills
+the winning mapping so that it can be reused.
+
+\section{From deliberate practice to rapid placement}
+
+A useful explanation for a non-specialist is to compare the two stages with
+deliberate practice.  During deliberate practice, a person repeatedly performs a
+difficult task, receives feedback, and gradually retains a skill that can later be
+used with less effort.  In this project, AWRS--SMC performs the expensive stage.
+It proposes many alternatives, fits and evaluates candidate UMAPs, and uses the
+V-measure, the adjacency potential, and the other terms in its score to select a
+winning atlas.  The resulting annotated examples record both the selected input
+features and the coordinates produced by that atlas.  They therefore provide the
+feedback from which the Transformer can learn.
+
+Training the Transformer moves part of this computational effort from the time of
+use to an earlier training phase.  Once training is complete, a new study profile
+is standardized with the stored statistics and passed through the network once.
+The network predicts its coordinates without rerunning the AWRS--SMC search and
+without rebuilding the UMAP.  In machine-learning terminology, this is a form of
+\emph{amortized computation}: a substantial cost is paid once so that subsequent
+predictions are inexpensive.  It is also an \emph{out-of-sample parametric
+mapping}, because one learned function places observations that were not present
+when the original atlas was made.
+
+The comparison with human learning is an analogy, not a claim that the program
+learns or understands as a person does.  The Transformer compresses a numerical
+relationship found in its training corpus.  It receives no new clinical judgment
+at prediction time, and rapid placement is trustworthy only to the extent that
+the training corpus represents the new observation.  An input outside the stored
+feature ranges is an extrapolation and should be flagged for review.
+
+\section{Relation to earlier biomedical and clinical work}
+
+The broad idea has precedents, although the publications use different models and
+training objectives.  Parametric UMAP replaces the direct optimization of point
+coordinates with a neural network and explicitly supports fast embedding of new
+data after training \citep{sainburg2021parametric}.  The closely related
+\emph{ivis} method learned a parametric map for single-cell expression and mass
+cytometry data and demonstrated that new observations could be added to an
+existing embedding \citep{szubert2019ivis}.  These are biomedical examples, but
+their observations are cells rather than reports in a clinical meta-analysis.
+
+Transformers have also been trained on heterogeneous clinical and
+clinicogenomic records before specialization for treatment-response and survival
+tasks \citep{arangoargoty2025clinical}.  This supports the general strategy of
+performing an expensive learning phase once and then reusing the learned
+representation, but that study did not train a Transformer to reproduce the
+coordinates of an AWRS--SMC-selected UMAP atlas.  A recent preprint studies the
+specific problem of inserting out-of-sample observations into a fixed UMAP and
+reports an advantage for parameterized UMAP on increasingly complex data,
+including medical images \citep{islam2026outofsample}.  Because it is a 2026
+preprint, this evidence should be treated as preliminary.
+
+Thus, fast placement after prior training is an established research direction.
+The particular teacher--student arrangement used here---AWRS--SMC constructs and
+scores the atlas, its winning coordinates annotate the corpus, and a small
+dependency-free Common Lisp Transformer learns that mapping---is a project-specific
+implementation.  It should not be presented as clinical validation or as proof
+that no earlier system combined comparable components.
+
+\section{Annotated training corpus}
+
+The corpus builder reads the winning AWRS--SMC result and its preserved Common
+Lisp coordinates.  It reconstructs the winning selected features, freezes the
+column means and scales, and writes one S-expression record per atlas point.  Each
+record contains an identifier, study group, split, standardized input vector,
+two-dimensional target, cluster assignment, and medical label.
+
+The pilot contains 90 observations from six study groups.  Seventy observations
+are marked for training and 20 for validation.  All observations belonging to one
+study remain in the same split.  The validation study in the present artifact is
+PALETTE.  This prevents windows from one study from appearing on both sides of the
+evaluation.
+
+The six selected inputs are survival progress, window start, window length,
+cohort-size context, median progression-free-survival context, and objective
+response rate, with the exact schema and transformations stored in the corpus.
+The corpus is numeric rather than textual; ``token'' below means one named
+numerical feature.
+
+\section{Feature-token Transformer}
+
+For feature $i$ with standardized scalar value $x_i$, the initial token state is
+\[
+  h_i^{(0)}=e_i+w_x x_i+b_x,
+\]
+where $e_i$ is a learned feature-identity embedding.  Sharing $w_x$ and $b_x$
+across positions supplies a common scalar projection, while $e_i$ tells the model
+which clinical feature the number represents.
+
+The six token states pass through one scaled dot-product self-attention block.
+For query, key, and value projections,
+\[
+  q_i=W_qh_i,\qquad k_i=W_kh_i,\qquad v_i=W_vh_i,
+\]
+the attention weights and mixed value are
+\[
+  a_{ij}=\operatorname{softmax}_j
+  \left(\frac{q_i^{\mathsf T}k_j}{\sqrt{d}}\right),\qquad
+  z_i=\sum_j a_{ij}v_j.
+\]
+An output projection, residual connection, and root-mean-square normalization
+follow attention.  A two-layer feed-forward block with a hyperbolic-tangent
+activation is followed by a second residual connection and normalization.  Mean
+pooling over the six encoded tokens gives a fixed-length representation; a linear
+regression head returns two coordinates.
+
+The pilot deliberately remains small: one attention block, one attention head,
+model dimension 8, and feed-forward dimension 12.  This controls capacity in a
+corpus with only 70 training observations.
+
+\section{Optimization and reproducibility}
+
+The current baseline minimizes coordinate mean squared error,
+\[
+  \mathcal{L}_{\mathrm{coordinate}}
+  =\frac{1}{2N}\sum_{n=1}^{N}
+    \left\|f_{\theta}(x_n)-y_n\right\|_2^2,
+\]
+where $y_n$ is the coordinate pair preserved from the winning Common Lisp UMAP.
+Scalar automatic differentiation constructs the computation graph during each
+forward pass.  Reverse traversal calculates gradients through scalar projection,
+self-attention, normalization, the feed-forward block, pooling, and the output
+head.  Adam updates every learned parameter.  Thus, this is full
+backpropagation---not the frozen-encoder, head-only optimization used by the
+earlier miniature text Transformer.
+
+Initialization and record ordering are deterministic.  The baseline uses seed
+20260902, 100 epochs, and learning rate 0.002.  The serialized S-expression
+contains the complete model, feature schema, preprocessing statistics, split
+policy, and training report.  It contains no machine-specific path and requires
+only SBCL and repository files.
+
+Before full-corpus training, the implementation must overfit one observation.
+The test verifies that the loss falls by at least four orders of magnitude and
+below $10^{-6}$.  It then saves and reloads the weights and verifies that the
+prediction is unchanged.  This is a focused gradient and serialization test; it
+is not a measure of generalization.
+
+\section{Coordinate-only baseline}
+
+Table~\ref{tab:baseline} reports the final metrics stored in the trained artifact.
+Each error is measured in the coordinate system of the winning UMAP.
+
+\begin{table}[ht]
+\centering
+\caption{Results after 100 coordinate-only training epochs.}
+\label{tab:baseline}
+\begin{tabular}{lrrrr}
+\toprule
+Split & Observations & MSE & RMSE & MAE \\
+\midrule
+Training & 70 & 0.4064 & 0.6375 & 0.4939 \\
+Validation & 20 & 1.2716 & 1.1277 & 1.0213 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The validation error is higher than the training error, as expected for an unseen
+study group.  During the fixed 100-epoch run, validation RMSE was approximately
+0.958 at epoch 80 and 1.128 at epoch 100.  This observation suggests that early
+stopping may be useful, but the reported baseline retains the prespecified 100
+epochs.  The validation values were reported and were not used to update model
+parameters.
+
+\section{Running the implementation}
+
+From the repository root, the baseline is reproduced with:
+
+\begin{verbatim}
+sbcl --script smc-trainer/train.lisp \
+  smc-trainer/corpus/pilot-parametric-umap.sexp \
+  smc-trainer/weights/pilot-coordinate-baseline.sexp 100 0.002d0
+\end{verbatim}
+
+A new observation is projected by supplying its six raw values in the stored
+feature-schema order:
+
+\begin{verbatim}
+sbcl --script smc-trainer/predict.lisp \
+  smc-trainer/weights/pilot-coordinate-baseline.sexp \
+  '(0.8 0.1 0.2 2.0 1.0 0.3)'
+\end{verbatim}
+
+The prediction program reads the means and scales from the trained artifact,
+standardizes the raw values, and returns an S-expression containing the two
+coordinates and their coordinate-system identifier.
+
+The corpus and model test suites are run with:
+
+\begin{verbatim}
+sbcl --script vendor/test-cases/run-tests.lisp \
+  smc-trainer/tests.lisp
+sbcl --script vendor/test-cases/run-tests.lisp \
+  smc-trainer/trainer-tests.lisp
+\end{verbatim}
+
+The current corpus suite passes 1,504 assertions.  The model suite verifies an
+independent product derivative, one-observation overfitting, serialization
+round-trip, artifact metadata, raw-feature standardization, and finite coordinate
+prediction.
+
+\section{Limitations}
+
+The Transformer approximates one fixed atlas and inherits its assumptions and
+errors.  It does not demonstrate that the UMAP geometry is medically correct, and
+it does not estimate treatment effects.  The 90 atlas observations are dependent
+windows derived from only six study groups.  Although the group split prevents
+direct window leakage, one held-out group is too small a basis for broad claims of
+generalization.
+
+The preserved target coordinates were constructed using the whole pilot atlas,
+including the validation study.  Consequently, validation measures approximation
+of a fixed transductive atlas, not independent validation of the atlas's clinical
+structure.  New observations far outside the feature ranges represented in the
+corpus are extrapolations and should be marked as such.
+
+\section{Next experiment: neighbourhood preservation}
+
+Coordinate loss requires the model to reproduce an arbitrary orientation and
+scale even though the principal scientific interest lies in local relationships.
+The next experiment will add a neighbourhood term,
+\[
+  \mathcal{L}=\mathcal{L}_{\mathrm{coordinate}}
+  +\lambda\mathcal{L}_{\mathrm{neighbourhood}}.
+\]
+Pairs that are neighbours in the winning atlas will be encouraged to remain close
+in the learned projection; selected non-neighbour pairs will prevent collapse.
+Several fixed values of $\lambda$, including zero, will be compared under the same
+initialization and split.  Coordinate RMSE, nearest-neighbour retention, and
+cluster agreement will be reported together.  The coordinate-only artifact in
+this document is the required control for that comparison.
+
+\bibliographystyle{plainnat}
+\bibliography{../references}
+
+\end{document}

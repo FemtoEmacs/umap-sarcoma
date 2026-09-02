@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Adding new evidence to the sarcoma UMAP atlas</title>
+  <style>
+    :root{color-scheme:light dark;--bg:#f7f5f0;--fg:#17202a;--muted:#5f6b73;--panel:#fff;--border:#cad1d5;--accent:#173b57;--new:#fff;--shadow:rgba(23,32,42,.16)}
+    @media(prefers-color-scheme:dark){:root{--bg:#151719;--fg:#edf1f3;--muted:#aab4ba;--panel:#202427;--border:#566169;--accent:#8dc9ef;--new:#111;--shadow:rgba(0,0,0,.35)}}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.35 system-ui,-apple-system,sans-serif} main{max-width:1040px;margin:auto;padding:14px}
+    h1{font:700 clamp(1.25rem,2.6vw,1.75rem)/1.12 Georgia,serif;margin:0}.subtitle{color:var(--muted);margin:.3rem 0 .55rem;max-width:850px}
+    .toolbar{display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:6px 0}.control{display:grid;gap:3px}.control span{font-size:.76rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}select{font:inherit;padding:6px 32px 6px 9px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--fg)}
+    .status{margin-left:auto;color:var(--muted);font-weight:650}.plot{position:relative;background:var(--panel);border:1px solid var(--border)}svg{display:block;width:100%;height:auto}.frame{fill:none;stroke:var(--border)}.axis path,.axis line{stroke:var(--border)}.axis text,.axis-title{fill:var(--fg);font-size:12px}.axis-title{font-weight:650}.atlas-point{stroke:var(--panel);stroke-width:1;opacity:.76}.new-halo{fill:none;stroke:var(--fg);stroke-width:7;opacity:.22}.new-point{stroke:var(--fg);stroke-width:2.2}.new-label{fill:var(--fg);font-size:12px;font-weight:750;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+    .legend{display:flex;gap:13px;flex-wrap:wrap;align-items:center;padding:7px 2px;color:var(--muted);font-size:.86rem}.legend-item{display:flex;align-items:center;gap:6px}.swatch{width:11px;height:11px;border-radius:50%}.diamond{width:11px;height:11px;background:var(--new);border:2px solid var(--fg);transform:rotate(45deg)}
+    .note{padding:8px 12px;border-left:4px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));font-size:.88rem}.tooltip{position:absolute;display:none;pointer-events:none;z-index:5;max-width:330px;padding:8px 10px;background:var(--panel);color:var(--fg);border:1px solid var(--border);box-shadow:0 5px 20px var(--shadow);font-size:.85rem}.tooltip strong{color:var(--accent)}
+    @media(max-width:600px){main{padding:12px}.status{width:100%;margin:0}.new-label{display:none}}
+  </style>
+</head>
+<body>
+<main id="insertion-demo">
+  <h1>Adding new evidence without rebuilding the atlas</h1>
+  <p class="subtitle">The background points are the fixed AWRS–SMC UMAP atlas. Switch the view to see four illustrative profiles placed by the trained Transformer.</p>
+  <div class="toolbar">
+    <label class="control"><span>Atlas view</span><select class="state"><option value="before">Before new evidence</option><option value="after">After inserting 4 profiles</option></select></label>
+    <label class="control"><span>Color existing points by</span><select class="color"><option value="label">Sarcoma type</option><option value="cluster">UMAP cluster</option></select></label>
+    <div class="status" aria-live="polite"></div>
+  </div>
+  <div class="plot"><svg role="img" aria-label="UMAP atlas before or after insertion of illustrative new evidence profiles"></svg><div class="tooltip" role="tooltip"></div></div>
+  <div class="legend"></div>
+  <div class="note">Demonstration only. The four marked profiles are synthetic examples derived from the pilot feature distribution; they are not clinical studies or treatment recommendations.</div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const atlas=__ATLAS_POINTS__;
+  const additions=__NEW_POINTS__;
+  const root=document.getElementById('insertion-demo'),svg=root.querySelector('svg'),tip=root.querySelector('.tooltip'),state=root.querySelector('.state'),colorMenu=root.querySelector('.color'),status=root.querySelector('.status'),legend=root.querySelector('.legend');
+  const ns='http://www.w3.org/2000/svg';
+  const palette=['#2563eb','#e08b16','#15966c','#c84848','#7656c9','#168aa2'];
+  const all=[...atlas,...additions];
+  const extent=values=>[Math.min(...values),Math.max(...values)];
+  const pad=domain=>{const span=domain[1]-domain[0]||1;return [domain[0]-.07*span,domain[1]+.07*span]};
+  const xDomain=pad(extent(all.map(d=>d.x))),yDomain=pad(extent(all.map(d=>d.y)));
+  function element(tag,attributes={},text=''){const node=document.createElementNS(ns,tag);Object.entries(attributes).forEach(([key,value])=>node.setAttribute(key,value));if(text)node.textContent=text;return node}
+  function linear(domain,range){const span=domain[1]-domain[0]||1;return value=>range[0]+(value-domain[0])*(range[1]-range[0])/span}
+  function ticks(domain,count){return Array.from({length:count},(_,i)=>domain[0]+(domain[1]-domain[0])*i/(count-1))}
+  function add(parent,node){parent.appendChild(node);return node}
+  function esc(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function showTip(event,d){const rect=root.querySelector('.plot').getBoundingClientRect();tip.innerHTML=d.new?`<strong>${esc(d.name)}</strong><br>${esc(d.label)}<br>Projected by the Transformer`:`<strong>${esc(d.group)}</strong><br>${esc(d.label)}<br>Existing atlas point`;tip.style.display='block';tip.style.left=`${Math.min(event.clientX-rect.left+12,rect.width-tip.offsetWidth-8)}px`;tip.style.top=`${Math.max(8,event.clientY-rect.top-tip.offsetHeight-10)}px`}
+  function hideTip(){tip.style.display='none'}
+  function bindTooltip(node,data){node.addEventListener('pointerenter',event=>showTip(event,data));node.addEventListener('pointermove',event=>showTip(event,data));node.addEventListener('pointerleave',hideTip)}
+  function marker(shape,cx,cy,size,className,fill){
+    let node;
+    if(shape===0){node=element('polygon',{points:`${cx},${cy-size} ${cx+size},${cy} ${cx},${cy+size} ${cx-size},${cy}`})}
+    else if(shape===1){node=element('polygon',{points:`${cx},${cy-size} ${cx+size*.9},${cy+size*.75} ${cx-size*.9},${cy+size*.75}`})}
+    else if(shape===2){node=element('rect',{x:cx-size*.72,y:cy-size*.72,width:size*1.44,height:size*1.44})}
+    else {const points=[];for(let i=0;i<10;i++){const angle=-Math.PI/2+i*Math.PI/5,r=i%2?size*.42:size;points.push(`${cx+Math.cos(angle)*r},${cy+Math.sin(angle)*r}`)}node=element('polygon',{points:points.join(' ')})}
+    node.setAttribute('class',className);node.setAttribute('fill',fill);return node;
+  }
+  function draw(){
+    const width=Math.max(320,root.querySelector('.plot').clientWidth),height=Math.max(300,Math.min(500,width*.47)),m={t:22,r:30,b:50,l:64};
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);svg.replaceChildren();
+    const x=linear(xDomain,[m.l,width-m.r]),y=linear(yDomain,[height-m.b,m.t]);
+    const key=colorMenu.value,domain=[...new Set(atlas.map(d=>String(d[key])))],color=value=>palette[Math.max(0,domain.indexOf(String(value)))%palette.length];
+    add(svg,element('rect',{class:'frame','data-chart-frame':'',x:m.l,y:m.t,width:width-m.l-m.r,height:height-m.t-m.b}));
+    const xAxis=add(svg,element('g',{class:'axis'})),yAxis=add(svg,element('g',{class:'axis'}));
+    add(xAxis,element('line',{x1:m.l,y1:height-m.b,x2:width-m.r,y2:height-m.b}));
+    ticks(xDomain,width<520?4:7).forEach(value=>{const px=x(value);add(xAxis,element('line',{x1:px,y1:height-m.b,x2:px,y2:height-m.b+6}));add(xAxis,element('text',{x:px,y:height-m.b+21,'text-anchor':'middle'},value.toFixed(1)))});
+    add(yAxis,element('line',{x1:m.l,y1:m.t,x2:m.l,y2:height-m.b}));
+    ticks(yDomain,6).forEach(value=>{const py=y(value);add(yAxis,element('line',{x1:m.l-6,y1:py,x2:m.l,y2:py}));add(yAxis,element('text',{x:m.l-10,y:py+4,'text-anchor':'end'},value.toFixed(1)))});
+    add(svg,element('text',{class:'axis-title','data-axis':'x',x:(m.l+width-m.r)/2,y:height-12,'text-anchor':'middle'},'UMAP 1 — fixed atlas coordinate'));
+    add(svg,element('text',{class:'axis-title','data-axis':'y',transform:`translate(18 ${(m.t+height-m.b)/2}) rotate(-90)`,'text-anchor':'middle'},'UMAP 2 — fixed atlas coordinate'));
+    const atlasGroup=add(svg,element('g'));
+    atlas.forEach(d=>{const node=add(atlasGroup,element('circle',{class:'atlas-point',cx:x(d.x),cy:y(d.y),r:5,fill:color(d[key])}));bindTooltip(node,d)});
+    if(state.value==='after'){
+      const newGroup=add(svg,element('g'));
+      additions.forEach((d,i)=>{const cx=x(d.x),cy=y(d.y);add(newGroup,marker(d.shape,cx,cy,12,'new-halo','none'));const node=add(newGroup,marker(d.shape,cx,cy,9,'new-point',color(d[key])));bindTooltip(node,d);add(newGroup,element('text',{class:'new-label',x:cx+11,y:cy-11},`New ${i+1}`))});
+    }
+    status.textContent=state.value==='after'?`${atlas.length} fixed + ${additions.length} newly projected`:`${atlas.length} fixed atlas observations`;
+    legend.innerHTML=domain.map((d,i)=>`<span class="legend-item"><span class="swatch" style="background:${palette[i%palette.length]}"></span>${esc(d)}</span>`).join('')+(state.value==='after'?'<span class="legend-item"><span class="diamond"></span>Marked shape = newly projected</span>':'');
+  }
+  function safeDraw(){try{draw()}catch(error){console.error(error);status.textContent='The chart could not be drawn.';svg.replaceChildren(element('text',{x:20,y:40,fill:'currentColor'},'Unable to draw the atlas. Please rebuild the demonstration.'))}}
+  state.addEventListener('change',safeDraw);colorMenu.addEventListener('change',safeDraw);if('ResizeObserver'in window)new ResizeObserver(safeDraw).observe(root.querySelector('.plot'));else window.addEventListener('resize',safeDraw);safeDraw();
+})();
+</script>
+</body>
+</html>

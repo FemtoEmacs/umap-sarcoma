@@ -1,0 +1,54 @@
+\documentclass[12pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+\title{Parametric UMAP Trainer Implementation Plan}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+The trainer will learn a reusable mapping from the six numerical features selected
+by AWRS--SMC to the two coordinates of the winning Common Lisp UMAP.  It will not
+replace the search that constructed the reference atlas.  Its purpose is to place
+a new study in that fixed atlas without fitting UMAP again.
+
+Each selected feature is represented as a token.  A token combines a learned
+feature-identity embedding with a learned projection of its standardized scalar
+value.  A small Transformer encoder applies self-attention, residual connections,
+normalization, and a feed-forward block to the six tokens.  Mean pooling followed
+by a regression head produces two coordinates.  The entire encoder and regression
+head will be trained; this differs from the earlier pedagogical text Transformer,
+whose encoder was frozen while only its output heads were optimized.
+
+The initial objective is coordinate mean squared error against the preserved
+Common Lisp coordinates.  A later objective will add a neighbourhood term,
+
+\[
+  \mathcal{L}=\mathcal{L}_{\mathrm{coordinate}}
+  +\lambda\mathcal{L}_{\mathrm{neighbourhood}},
+\]
+
+where $\lambda$ controls the preference for preserving nearby observations.  The
+coordinate-only model is retained as a baseline so that the effect of the
+neighbourhood term can be measured rather than assumed.
+
+Implementation proceeds through reproducible milestones.  First, a deliberately
+small model must overfit one corpus observation, be serialized as an S-expression,
+be loaded into a fresh process, and reproduce the same coordinates.  Second, the
+model will be trained on the 70 training observations and evaluated on the 20
+study-grouped validation observations.  Third, prediction software will accept a
+new study's six features and return its location without rerunning UMAP.  Finally,
+predicted coordinates will be assessed by coordinate error, nearest-neighbour
+retention, and cluster agreement with the winning atlas.
+
+The pilot corpus is small, so the initial network will contain one attention block,
+one attention head, and a low-dimensional hidden representation.  Increasing
+capacity will be justified only by validation results.  The validation split does
+not independently validate the medical geometry: it measures how well the trainer
+approximates a fixed atlas for a held-out study group.
+
+\end{document}

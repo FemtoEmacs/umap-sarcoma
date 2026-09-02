@@ -1,0 +1,41 @@
+\begin{thebibliography}{4}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Arango-Argoty et~al.(2025)Arango-Argoty, Kipkogei, Stewart, Sun,
+  Patra, Kagiampakis, and Jacob]{arangoargoty2025clinical}
+Gustavo Arango-Argoty, Elly Kipkogei, Ross Stewart, Gerald~J. Sun, Arijit
+  Patra, Ioannis Kagiampakis, and Etai Jacob.
+\newblock Pretrained transformers applied to clinical studies improve
+  predictions of treatment efficacy and associated biomarkers.
+\newblock \emph{Nature Communications}, 16:\penalty0 2101, 2025.
+\newblock \doi{10.1038/s41467-025-57181-2}.
+
+\bibitem[Islam and Fleischer(2026)]{islam2026outofsample}
+Mohammad~Tariqul Islam and Jason~W. Fleischer.
+\newblock On out-of-sample embedding in {UMAP}.
+\newblock \emph{arXiv preprint arXiv:2606.04451}, 2026.
+\newblock \doi{10.48550/arXiv.2606.04451}.
+\newblock Preprint.
+
+\bibitem[Sainburg et~al.(2021)Sainburg, McInnes, and
+  Gentner]{sainburg2021parametric}
+Tim Sainburg, Leland McInnes, and Timothy~Q. Gentner.
+\newblock Parametric {UMAP} embeddings for representation and semisupervised
+  learning.
+\newblock \emph{Neural Computation}, 33\penalty0 (11):\penalty0 2881--2907,
+  2021.
+\newblock \doi{10.1162/neco_a_01434}.
+
+\bibitem[Szubert et~al.(2019)Szubert, Cole, Monaco, and
+  Drozdov]{szubert2019ivis}
+Benjamin Szubert, Jennifer~E. Cole, Claudia Monaco, and Ignat Drozdov.
+\newblock Structure-preserving visualisation of high dimensional single-cell
+  datasets.
+\newblock \emph{Scientific Reports}, 9:\penalty0 8914, 2019.
+\newblock \doi{10.1038/s41598-019-45301-0}.
+
+\end{thebibliography}
