@@ -2,7 +2,8 @@
 
 (defparameter *shard-builder-directory*
   (make-pathname :name nil :type nil :defaults *load-truename*))
-(load (merge-pathnames "shards.lisp" *shard-builder-directory*))
+(unless (fboundp 'parametric-open-corpus-source)
+  (load (merge-pathnames "shards.lisp" *shard-builder-directory*)))
 (defvar *shard-corpus-run-main* t)
 
 (defun shard-output-directory (path)
@@ -11,17 +12,20 @@
                        (char= (char text (1- (length text))) #\/))
                   text (concatenate 'string text "/")))))
 
-(defun shard-group-runs (records)
-  (let ((runs nil) (current nil) (current-group nil))
+(defun shard-group-records (records)
+  "Collect every occurrence of a group, preserving first-group and within-group order."
+  (let ((group-order nil) (groups (make-hash-table :test #'equal))
+        (splits (make-hash-table :test #'equal)))
     (dolist (record records)
-      (let ((group (getf record :group)))
-        (if (and current (equal group current-group))
-            (push record current)
-            (progn
-              (when current (push (nreverse current) runs))
-              (setf current (list record) current-group group)))))
-    (when current (push (nreverse current) runs))
-    (nreverse runs)))
+      (let* ((group (getf record :group)) (split (getf record :split))
+             (known-split (gethash group splits)))
+        (unless (gethash group groups) (push group group-order))
+        (when (and known-split (not (eq known-split split)))
+          (error "Study group ~S crosses corpus splits." group))
+        (setf (gethash group splits) split)
+        (push record (gethash group groups))))
+    (mapcar (lambda (group) (nreverse (gethash group groups)))
+            (nreverse group-order))))
 
 (defun shard-pack-runs (runs limit)
   (let ((shards nil) (current nil) (count 0))
@@ -45,7 +49,7 @@
   (let* ((corpus (parametric-read-one-form input))
          (records (getf corpus :records))
          (directory (shard-output-directory output-directory))
-         (packed (shard-pack-runs (shard-group-runs records) record-limit))
+         (packed (shard-pack-runs (shard-group-records records) record-limit))
          (descriptors nil))
     (unless (eq (getf corpus :format) :parametric-umap-corpus)
       (error "Input must be a single-file Parametric UMAP corpus."))

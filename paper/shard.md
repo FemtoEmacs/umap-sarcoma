@@ -1,8 +1,8 @@
 # Sharded training corpus
 
 The `smc-trainer` can store its annotated corpus as independently readable
-Common Lisp shards. This extends the earlier Fejer-AI count-bounded sequential
-range algorithm to the AWRS–SMC UMAP corpus. The purpose is bounded-memory,
+Common Lisp shards. It uses a repository-local count-bounded sequential
+algorithm adapted to the AWRS–SMC UMAP corpus. The purpose is bounded-memory,
 reproducible training as the number of studies grows.
 
 The original single-file format remains supported. For the current 90-point
@@ -18,7 +18,10 @@ groups. Each shard contains consecutive top-level record property lists. A reade
 therefore calls Common Lisp `READ` once per observation and holds only the current
 record.
 
-Study groups are indivisible. The requested record limit is a soft bound: a group
+Study groups are collected across the complete input, even when their records are
+interleaved. Groups retain first-seen order, and records retain their order within
+each group. A group assigned to conflicting splits is rejected. Study groups are
+therefore indivisible. The requested record limit is a soft bound: a group
 larger than the limit occupies one larger shard. This preserves the study-grouped
 training and validation policy and prevents windows from one study from being
 silently separated by the storage layout.

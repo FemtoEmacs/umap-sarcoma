@@ -5,6 +5,8 @@
 (load (merge-pathnames "smc-trainer/validate-corpus.lisp" *shard-tests-root*))
 (defparameter *parametric-train-run-main* nil)
 (load (merge-pathnames "smc-trainer/train.lisp" *shard-tests-root*))
+(defparameter *shard-corpus-run-main* nil)
+(load (merge-pathnames "smc-trainer/shard-corpus.lisp" *shard-tests-root*))
 
 (defun shard-test-record-ids (source)
   (let ((ids nil))
@@ -38,3 +40,19 @@
         (test-cases:check-equal (parametric-model-form single-model)
                                 (parametric-model-form sharded-model))
         (test-cases:check-equal single-report sharded-report)))))
+
+(test-cases:deftest interleaved-study-records-remain-in-one-group
+  (let* ((a1 '(:id "a1" :group "A" :split :train))
+         (b1 '(:id "b1" :group "B" :split :validation))
+         (a2 '(:id "a2" :group "A" :split :train))
+         (groups (shard-group-records (list a1 b1 a2))))
+    (test-cases:check-equal '(("a1" "a2") ("b1"))
+                            (mapcar (lambda (group)
+                                      (mapcar (lambda (record) (getf record :id)) group))
+                                    groups))))
+
+(test-cases:deftest group-crossing-splits-is-rejected
+  (test-cases:check-signals error
+    (shard-group-records
+     '((:id "a1" :group "A" :split :train)
+       (:id "a2" :group "A" :split :validation)))))
