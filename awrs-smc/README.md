@@ -16,7 +16,7 @@ that algorithm to the existing Common Lisp UMAP, DBSCAN, and V-measure code.
 
 ## Search for a UMAP
 
-From `/Users/eduardo/umap-sarcoma`, run:
+From the root of the cloned repository, run:
 
 ```sh
 sbcl --script awrs-smc/search-umap.lisp \
@@ -33,8 +33,17 @@ For each feature, AWRS proposes either exclusion or one of that feature's
 declared transformations. The constraint enforces the minimum and maximum
 feature counts. It cannot select an undeclared transformation. Each completed
 particle builds a UMAP in Common Lisp, finds DBSCAN clusters, and calculates
-V-measure. The score potential changes its SMC weight. The result file contains
+V-measure. The terminal potential is
+`exp(beta * quality - adjacency-strength * adjacency-cost)`. Adjacency cost is
+the mean nearest boundary gap between clusters, normalized by DBSCAN epsilon.
+The result file contains
 the best real feature recipe and complete telemetry.
+
+Set `:adjacency-strength` in the search settings. It defaults to `0.0d0`, which
+preserves the previous target. Larger values increasingly favor nearby
+clusters. Increasing `:particles` and lowering `:resampling-threshold` retains
+more distinct terminal recipes for this potential to compare. The pilot starts
+with strength `4.0d0`, 32 particles, and threshold `0.25d0`.
 
 ## Generate HTML
 
@@ -49,9 +58,11 @@ sbcl --script smc/build-best-html.lisp \
 Open `awrs-smc/pilot-search-awrs-best.html` in a browser. The builder also
 writes `pilot-search-awrs-best-data.sexp` and
 `pilot-search-awrs-best-problem.sexp`. Those files preserve the selected data
-and settings used by the page. The browser uses its bundled `umap-js` code for
-the interactive layout. The search, transformations, UMAP scoring, and winning
-recipe are calculated in Common Lisp.
+and settings used by the page. AWRS-SMC stores the winning Common Lisp
+coordinates, and the HTML renders those exact optimized coordinates by
+default. Its Layout selector can recompute the winning feature recipe with
+`umap-js`, making the two UMAP implementations directly comparable without
+discarding the scored layout.
 
 To start a fresh run, delete these four generated files:
 
@@ -93,11 +104,9 @@ for every final UMAP recipe.
 ## Tests
 
 ```sh
-sbcl --script /Users/eduardo/.codex/skills/test-cases/scripts/run-tests.lisp \
-  awrs-smc/tests.lisp
+sbcl --script vendor/test-cases/run-tests.lisp awrs-smc/tests.lisp
 ```
 
 The tests include deterministic replay, categorical validation, unique
 rejection, unbiased `Z-hat` against an exact finite calculation, the `W / M`
 resampling rule, terminal score potentials, and telemetry totals.
-

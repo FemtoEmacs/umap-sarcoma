@@ -52,19 +52,20 @@
                          :awrs-definition 2 :smc-algorithm 2)
         :settings settings
         :telemetry (awrs-smc:awrs-smc-result-telemetry result)
-        :best (list :score (cdr best)
+        :best (append (copy-list (cdr best))
+                    (list
                     :features (awrs-choice-description
                                features
-                               (awrs-smc:awrs-particle-values (car best))))
+                               (awrs-smc:awrs-particle-values (car best)))))
         :particles
         (mapcar
          (lambda (entry)
-           (let ((particle (car entry)) (score (cdr entry)))
-             (list :score score
-                   :weight (awrs-smc:awrs-particle-weight particle)
-                   :features (awrs-choice-description
-                              features
-                              (awrs-smc:awrs-particle-values particle)))))
+           (let ((particle (car entry)) (components (cdr entry)))
+             (append (copy-list components)
+                     (list :weight (awrs-smc:awrs-particle-weight particle)
+                           :features (awrs-choice-description
+                                      features
+                                      (awrs-smc:awrs-particle-values particle))))))
          scored-particles)))
 
 (defun awrs-search-umap (search-name &optional output-name)
@@ -95,13 +96,15 @@
          (minimum (or (getf settings :minimum-features) 2))
          (maximum (or (getf settings :maximum-features) feature-count))
          (beta (or (getf settings :beta) 8.0d0))
+         (adjacency-strength (or (getf settings :adjacency-strength) 0.0d0))
          (score-cache (make-hash-table :test #'equal))
          (score-function
            (lambda (choices)
              (multiple-value-bind (value present) (gethash choices score-cache)
                (if present value
                    (setf (gethash (copy-list choices) score-cache)
-                         (smc-quality input labels features choices settings))))))
+                         (smc-quality-components
+                          input labels features choices settings))))))
          (result
            (awrs-smc:run-awrs-smc
             (lambda (prefix)
@@ -123,7 +126,11 @@
             :maximum-steps (1+ feature-count)
             :seed (or (getf settings :smc-seed) 20260901)
             :terminal-potential-function
-            (lambda (choices) (exp (* beta (funcall score-function choices))))))
+            (lambda (choices)
+              (let ((components (funcall score-function choices)))
+                (exp (- (* beta (getf components :quality))
+                        (* adjacency-strength
+                           (getf components :adjacency-cost))))))))
          (scored
            (mapcar (lambda (particle)
                      (cons particle
@@ -131,11 +138,26 @@
                                     (awrs-smc:awrs-particle-values particle))))
                    (awrs-smc:awrs-smc-result-particles result)))
          (best (reduce (lambda (left right)
-                         (if (> (cdr left) (cdr right)) left right)) scored))
+                         (let ((left-value
+                                 (- (* beta (getf (cdr left) :quality))
+                                    (* adjacency-strength
+                                       (getf (cdr left) :adjacency-cost))))
+                               (right-value
+                                 (- (* beta (getf (cdr right) :quality))
+                                    (* adjacency-strength
+                                       (getf (cdr right) :adjacency-cost)))))
+                           (if (> left-value right-value) left right))) scored))
+         (best-with-coordinates
+           (cons
+            (car best)
+            (smc-quality-components
+             input labels features
+             (awrs-smc:awrs-particle-values (car best)) settings
+             :include-coordinates t)))
          (output-path (if output-name (pathname output-name)
                           (awrs-default-output search-path)))
          (form (awrs-umap-result-form search-path manifest-path features settings
-                                      result scored best)))
+                                      result scored best-with-coordinates)))
     (ensure-directories-exist output-path)
     (with-open-file (stream output-path :direction :output
                                        :if-exists :supersede
@@ -147,10 +169,12 @@
               (hash-table-count score-cache)
               (getf telemetry :constraint-checks)
               (getf telemetry :rejections)))
-    (format t "Best score: ~,6F~%Best features: ~S~%Wrote ~A~%"
-            (cdr best)
+    (format t "Best score: ~,6F; adjacency cost: ~,6F~%Best features: ~S~%Wrote ~A~%"
+            (getf (cdr best-with-coordinates) :quality)
+            (getf (cdr best-with-coordinates) :adjacency-cost)
             (awrs-choice-description
-             features (awrs-smc:awrs-particle-values (car best)))
+             features
+             (awrs-smc:awrs-particle-values (car best-with-coordinates)))
             output-path)
     output-path))
 
@@ -161,4 +185,3 @@
     (awrs-search-umap (first arguments) (second arguments))))
 
 (when *awrs-umap-run-main* (awrs-search-main))
-

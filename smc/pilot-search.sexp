@@ -2,9 +2,10 @@
  :version 1
  :manifest "../pilot-problem.sexp"
  :label-field :sarcoma-type
- :search (:particles 4 :beam-factor 3
+ :search (:particles 32 :beam-factor 3
           :minimum-features 2 :maximum-features 6
           :beta 8.0d0 :feature-penalty 0.002d0
+          :adjacency-strength 4.0d0 :resampling-threshold 0.25d0
           :maximum-observations 90
           :neighbors 20 :minimum-distance 0.4d0 :epochs 35
           :standardize t :minimum-points 5 :epsilon :automatic

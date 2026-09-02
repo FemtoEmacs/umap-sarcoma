@@ -75,7 +75,8 @@
     (replace result labels :end2 used)
     result))
 
-(defun smc-quality (input labels features choices settings)
+(defun smc-quality-components (input labels features choices settings
+                               &key include-coordinates)
   (let* ((limit (getf settings :maximum-observations))
          (selected (smc-selected-feature-array input features choices limit))
          (used-labels (smc-truncated-labels labels limit))
@@ -95,8 +96,27 @@
                    used-labels
                    (embedding-clustering-result-assignments clustering)))
          (v (umap-v-measure-result-v-measure measure))
-         (feature-penalty (or (getf settings :feature-penalty) 0.0d0)))
-    (- v (* feature-penalty (smc-choice-count choices)))))
+         (feature-penalty (* (or (getf settings :feature-penalty) 0.0d0)
+                             (smc-choice-count choices)))
+         (adjacency-cost
+           (embedding-cluster-adjacency-cost
+            (cl-umap-result-coordinates umap)
+            (embedding-clustering-result-assignments clustering)
+            (embedding-clustering-result-epsilon clustering))))
+    (append
+     (list :score (- v feature-penalty)
+           :quality (- v feature-penalty)
+           :v-measure v
+           :feature-penalty feature-penalty
+           :adjacency-cost adjacency-cost
+           :cluster-count (embedding-clustering-result-cluster-count clustering))
+     (when include-coordinates
+       (list :coordinate-source :common-lisp-umap
+             :coordinates (cl-umap-result-coordinates umap))))))
+
+(defun smc-quality (input labels features choices settings)
+  (getf (smc-quality-components input labels features choices settings)
+        :quality))
 
 (defun smc-choice-description (features choices)
   (loop for feature in features for choice in choices

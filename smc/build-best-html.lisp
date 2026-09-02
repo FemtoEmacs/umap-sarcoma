@@ -20,14 +20,27 @@
     (setf (getf copy key) value)
     copy))
 
-(defun smc-materialized-records (records input features choices limit)
+(defun smc-materialized-records (records input features choices limit
+                                 &optional coordinates)
   (let* ((count (if limit (min limit (length records)) (length records)))
          (array (smc-selected-feature-array input features choices limit)))
+    (when (and coordinates
+               (or (/= (array-rank coordinates) 2)
+                   (/= (array-dimension coordinates 0) count)
+                   (/= (array-dimension coordinates 1) 2)))
+      (error "Preserved coordinates must be a ~D by 2 array." count))
     (loop for record in records for row below count collect
-      (smc-replace-plist-value
-       record :vector
-       (loop for column below (array-dimension array 1)
-             collect (aref array row column))))))
+      (let ((materialized
+              (smc-replace-plist-value
+               record :vector
+               (loop for column below (array-dimension array 1)
+                     collect (aref array row column)))))
+        (if coordinates
+            (smc-replace-plist-value
+             (smc-replace-plist-value materialized :x
+                                      (aref coordinates row 0))
+             :y (aref coordinates row 1))
+            materialized)))))
 
 (defun smc-best-html (result-name &optional output-name)
   (let* ((result-path (truename result-name))
@@ -59,9 +72,11 @@
                 (if declaration (getf declaration :transformation) :exclude)))
             features))
          (settings (getf result :settings))
+         (coordinates (getf best :coordinates))
          (materialized
            (smc-materialized-records
-            records input features choices (getf settings :maximum-observations)))
+            records input features choices (getf settings :maximum-observations)
+            coordinates))
          (output (or output-name
                      (namestring
                       (merge-pathnames
@@ -89,6 +104,7 @@
                 :minimum-distance (or (getf settings :minimum-distance) 0.1d0)
                 :epochs (or (getf settings :epochs) 50)
                 :seed (or (getf settings :umap-seed) 42)
+                :coordinate-mode (if coordinates :preserved :umap-js)
                 :density-surface t :density-bandwidth 45
                 :density-thresholds 10 :density-opacity 0.18d0
                 :density-color "data" :density-color-bands 7

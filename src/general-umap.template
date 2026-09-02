@@ -43,7 +43,8 @@
     <main id="app">
       <div class="top">
         <h1></h1>
-        <label>Color by <select></select></label>
+        <label>Color by <select class="color-select"></select></label>
+        <label>Layout <select class="layout-select"></select></label>
         <span class="status">Computing UMAP…</span>
       </div>
       <svg role="img"></svg>
@@ -63,7 +64,8 @@
       const rows = __ROWS__;
       const root = document.querySelector("#app");
       const views = problem.views || [];
-      const select = root.querySelector("select");
+      const select = root.querySelector(".color-select");
+      const layoutSelect = root.querySelector(".layout-select");
       const tip = root.querySelector(".tip");
 
       document.title = problem.title;
@@ -72,14 +74,15 @@
 
       const options = problem.umap || {};
       const preprocessing = problem.preprocessing || {};
-      let seed = options.seed || 123456789;
-      const random = () => {
-        seed |= 0;
-        seed = seed + 0x6D2B79F5 | 0;
-        let value = Math.imul(seed ^ seed >>> 15, 1 | seed);
-        value = value + Math.imul(value ^ value >>> 7, 61 | value) ^ value;
-        return ((value ^ value >>> 14) >>> 0) / 4294967296;
-      };
+      const preservedEmbedding = rows.every(
+        row => Number.isFinite(row.x) && Number.isFinite(row.y)
+      ) ? rows.map(row => [row.x, row.y]) : null;
+      if (preservedEmbedding) {
+        layoutSelect.add(new Option("Winning Common Lisp coordinates", "preserved"));
+      }
+      layoutSelect.add(new Option("Recompute with umap-js", "umap-js"));
+      layoutSelect.value = preservedEmbedding && options.coordinate_mode !== "umap-js"
+        ? "preserved" : "umap-js";
 
       const means = rows[0].vector.map(
         (_, index) => d3.mean(rows, row => row.vector[index])
@@ -92,17 +95,35 @@
         : rows.map(row => row.vector.map(
           (value, index) => (value - means[index]) / deviations[index]
         ));
-      const umap = new UMAP({
-        nComponents: 2,
-        nNeighbors: options.neighbors || 15,
-        minDist: options.minimum_distance ?? 0.1,
-        nEpochs: options.epochs || 300,
-        random
-      });
-      const embedding = umap.fit(input);
-      rows.forEach((row, index) => [row.x, row.y] = embedding[index]);
-      root.querySelector(".status").textContent =
-        `${rows.length.toLocaleString()} observations`;
+      function browserEmbedding() {
+        let seed = options.seed || 123456789;
+        const random = () => {
+          seed |= 0;
+          seed = seed + 0x6D2B79F5 | 0;
+          let value = Math.imul(seed ^ seed >>> 15, 1 | seed);
+          value = value + Math.imul(value ^ value >>> 7, 61 | value) ^ value;
+          return ((value ^ value >>> 14) >>> 0) / 4294967296;
+        };
+        return new UMAP({
+          nComponents: 2,
+          nNeighbors: options.neighbors || 15,
+          minDist: options.minimum_distance ?? 0.1,
+          nEpochs: options.epochs || 300,
+          random
+        }).fit(input);
+      }
+
+      function applyLayout() {
+        const embedding = layoutSelect.value === "preserved"
+          ? preservedEmbedding : browserEmbedding();
+        rows.forEach((row, index) => [row.x, row.y] = embedding[index]);
+        root.querySelector(".status").textContent =
+          `${rows.length.toLocaleString()} observations · ${
+            layoutSelect.value === "preserved"
+              ? "Common Lisp winner" : "umap-js recomputation"
+          }`;
+        draw();
+      }
 
       const svg = d3.select("svg");
       const series = [
@@ -328,8 +349,9 @@
       }
 
       select.addEventListener("change", draw);
+      layoutSelect.addEventListener("change", applyLayout);
       new ResizeObserver(draw).observe(root);
-      draw();
+      applyLayout();
     </script>
   </body>
 </html>

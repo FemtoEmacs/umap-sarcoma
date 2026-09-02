@@ -74,6 +74,17 @@
     (test-cases:check (= 1.0d0
                          (embedding-cluster-purity (second clusters))))))
 
+(test-cases:deftest cluster-adjacency-cost-prefers-nearer-clusters
+  (let* ((assignments #(0 0 1 1))
+         (near #2A((0.0d0 0.0d0) (0.1d0 0.0d0)
+                   (0.4d0 0.0d0) (0.5d0 0.0d0)))
+         (far #2A((0.0d0 0.0d0) (0.1d0 0.0d0)
+                  (4.0d0 0.0d0) (4.1d0 0.0d0)))
+         (near-cost (embedding-cluster-adjacency-cost near assignments 0.1d0))
+         (far-cost (embedding-cluster-adjacency-cost far assignments 0.1d0)))
+    (test-cases:check (<= 0.0d0 near-cost))
+    (test-cases:check (< near-cost far-cost))))
+
 (test-cases:deftest cl-umap-invalid-parameters
   (test-cases:check-signals error
     (cl-umap-fit #2A((0.0d0) (1.0d0) (2.0d0)) :neighbors 3))

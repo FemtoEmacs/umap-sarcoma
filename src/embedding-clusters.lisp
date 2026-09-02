@@ -113,6 +113,40 @@
                 (incf cluster-id))))))
     assignments))
 
+(defun embedding-cluster-boundary-distance (coordinates assignments first second)
+  "Return the smallest point distance between two non-noise clusters."
+  (let ((best most-positive-double-float))
+    (dotimes (left (length assignments) best)
+      (when (= (aref assignments left) first)
+        (dotimes (right (length assignments))
+          (when (= (aref assignments right) second)
+            (setf best (min best
+                            (embedding-distance coordinates left right)))))))))
+
+(defun embedding-cluster-adjacency-cost (coordinates assignments epsilon)
+  "Mean normalized gap from each cluster to its nearest other cluster.
+
+Coordinates are standardized before measuring. A zero cost means every
+cluster has another cluster no farther away than EPSILON. Noise points are
+ignored. Fewer than two discovered clusters have no adjacency relation and
+therefore contribute zero cost."
+  (unless (and (realp epsilon) (plusp epsilon))
+    (error "Adjacency epsilon must be positive."))
+  (let* ((standardized (embedding-standardized-coordinates coordinates))
+         (maximum (loop for value across assignments maximize value))
+         (cluster-count (1+ maximum)))
+    (if (< cluster-count 2)
+        0.0d0
+        (/ (loop for cluster below cluster-count
+                 for nearest =
+                   (loop for other below cluster-count
+                         unless (= cluster other)
+                           minimize
+                           (embedding-cluster-boundary-distance
+                            standardized assignments cluster other))
+                 sum (max 0.0d0 (- (/ nearest epsilon) 1.0d0)))
+           cluster-count))))
+
 (defun embedding-label-counts (assignments labels cluster-id)
   (let ((counts '()))
     (dotimes (index (length assignments) (nreverse counts))

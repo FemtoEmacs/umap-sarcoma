@@ -86,10 +86,8 @@ but not Lew's SMC inference procedure.
 The tests use the dependency-free `test-cases` runner:
 
 ```sh
-sbcl --script ~/.codex/skills/test-cases/scripts/run-tests.lisp \
-  /Users/eduardo/umap-sarcoma/smc/tests.lisp
-sbcl --script ~/.codex/skills/test-cases/scripts/run-tests.lisp \
-  /Users/eduardo/umap-sarcoma/smc/integration-tests.lisp
+sbcl --script vendor/test-cases/run-tests.lisp smc/tests.lisp
+sbcl --script vendor/test-cases/run-tests.lisp smc/integration-tests.lisp
 ```
 
 They check deterministic randomness, feature-count bounds, proposal and prior

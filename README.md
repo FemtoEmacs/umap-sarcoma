@@ -19,11 +19,8 @@ browser modules for its interactive display.
 No Quicklisp, ASDF system, Python, Node.js, npm, or external numerical library
 is required.
 
-Run the commands below from the repository root:
-
-```sh
-cd ~/umap-sarcoma
-```
+After cloning, change into the cloned repository directory. Run all commands
+below from that repository root; its name and location do not matter.
 
 ## Build the main sarcoma UMAP
 
