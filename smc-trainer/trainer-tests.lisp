@@ -1,7 +1,7 @@
 (defparameter *parametric-tests-root*
   (merge-pathnames "../" (make-pathname :name nil :type nil :defaults *load-truename*)))
 
-(load (merge-pathnames "smc-trainer/model.lisp" *parametric-tests-root*))
+(load (merge-pathnames "smc-trainer/transformer.lisp" *parametric-tests-root*))
 (defparameter *parametric-predict-run-main* nil)
 (load (merge-pathnames "smc-trainer/predict.lisp" *parametric-tests-root*))
 
@@ -10,6 +10,23 @@
          (square (ad* x x)))
     (ad-backpropagate square)
     (test-cases:check (< (abs (- (ad-gradient x) 6.0d0)) 1.0d-12))))
+
+(test-cases:deftest explicit-transformer-architecture
+  (let* ((model (initialize-parametric-model 6 :d-model 8 :d-ff 12))
+         (input '(0.1d0 -0.2d0 0.3d0 -0.4d0 0.5d0 -0.6d0))
+         (tokens (transformer-feature-tokens model input))
+         (attention (transformer-self-attention model tokens))
+         (encoded (transformer-block model tokens))
+         (coordinates (transformer-forward model input)))
+    (test-cases:check (fboundp 'transformer-self-attention))
+    (test-cases:check (fboundp 'transformer-feed-forward))
+    (test-cases:check (fboundp 'transformer-block))
+    (test-cases:check (fboundp 'transformer-forward))
+    (test-cases:check-equal 6 (length tokens))
+    (test-cases:check-equal 6 (length attention))
+    (test-cases:check-equal 6 (length encoded))
+    (test-cases:check (every (lambda (token) (= 8 (length token))) encoded))
+    (test-cases:check-equal 2 (length coordinates))))
 
 (test-cases:deftest one-observation-overfit-and-roundtrip
   (let* ((corpus-path (merge-pathnames

@@ -171,52 +171,77 @@
          (total (ad-sum exponentials)))
     (mapcar (lambda (value) (ad/ value total)) exponentials)))
 
-(defun parametric-forward (model input)
+(defun transformer-feature-tokens (model input)
+  "Turn each scalar feature into a D-MODEL-dimensional feature token."
   (unless (= (length input) (parametric-model-feature-count model))
     (error "Expected ~D input features, received ~D."
            (parametric-model-feature-count model) (length input)))
+  (loop for value in input
+        for identity in (parametric-model-feature-embeddings model)
+        collect
+        (loop for base in identity
+              for weight in (parametric-model-scalar-weights model)
+              for bias in (parametric-model-scalar-bias model)
+              collect (ad+ base
+                           (ad+ (ad* weight (trainer-constant value)) bias)))))
+
+(defun transformer-self-attention (model tokens)
+  "Apply one-head scaled dot-product self-attention to TOKENS."
   (let* ((d (parametric-model-d-model model))
-         (tokens
-           (loop for value in input for identity in (parametric-model-feature-embeddings model)
-                 collect
-                 (loop for base in identity
-                       for weight in (parametric-model-scalar-weights model)
-                       for bias in (parametric-model-scalar-bias model)
-                       collect (ad+ base (ad+ (ad* weight (trainer-constant value)) bias)))))
          (queries (mapcar (lambda (x) (ad-matvec (parametric-model-wq model) x)) tokens))
          (keys (mapcar (lambda (x) (ad-matvec (parametric-model-wk model) x)) tokens))
          (values (mapcar (lambda (x) (ad-matvec (parametric-model-wv model) x)) tokens))
-         (scale (trainer-constant (sqrt (coerce d 'double-float))))
-         (attended
-           (loop for query in queries collect
-             (let* ((scores (mapcar (lambda (key) (ad/ (ad-dot query key) scale)) keys))
-                    (probabilities (ad-softmax scores))
-                    (mixed
-                      (loop for component below d collect
-                        (ad-sum
-                         (loop for probability in probabilities for value in values
-                               collect (ad* probability (nth component value)))))))
-               (ad-matvec (parametric-model-wo model) mixed))))
+         (scale (trainer-constant (sqrt (coerce d 'double-float)))))
+    (loop for query in queries collect
+      (let* ((scores
+               (mapcar (lambda (key) (ad/ (ad-dot query key) scale)) keys))
+             (probabilities (ad-softmax scores))
+             (mixed
+               (loop for component below d collect
+                 (ad-sum
+                  (loop for probability in probabilities
+                        for value in values
+                        collect (ad* probability (nth component value)))))))
+        (ad-matvec (parametric-model-wo model) mixed)))))
+
+(defun transformer-feed-forward (model state)
+  "Apply the position-wise two-layer feed-forward network to one token."
+  (let ((hidden (mapcar #'ad-tanh
+                        (ad-matvec (parametric-model-w1 model) state
+                                   (parametric-model-b1 model)))))
+    (ad-matvec (parametric-model-w2 model) hidden
+               (parametric-model-b2 model))))
+
+(defun transformer-block (model tokens)
+  "Apply self-attention and feed-forward sublayers with residual RMSNorm."
+  (let* ((attention (transformer-self-attention model tokens))
          (after-attention
-           (mapcar (lambda (token attention)
-                     (ad-rms-normalize (ad-vector+ token attention)))
-                   tokens attended))
-         (encoded
-           (mapcar
-            (lambda (state)
-              (let* ((hidden (mapcar #'ad-tanh
-                                     (ad-matvec (parametric-model-w1 model) state
-                                                (parametric-model-b1 model))))
-                     (feed-forward
-                       (ad-matvec (parametric-model-w2 model) hidden
-                                  (parametric-model-b2 model))))
-                (ad-rms-normalize (ad-vector+ state feed-forward))))
-            after-attention))
-         (pooled
-           (loop for component below d collect
-             (ad-mean (mapcar (lambda (state) (nth component state)) encoded)))))
+           (mapcar (lambda (token attended)
+                     (ad-rms-normalize (ad-vector+ token attended)))
+                   tokens attention)))
+    (mapcar
+     (lambda (state)
+       (ad-rms-normalize
+        (ad-vector+ state (transformer-feed-forward model state))))
+     after-attention)))
+
+(defun transformer-mean-pool (encoded d-model)
+  "Mean-pool encoded feature tokens into one D-MODEL-dimensional vector."
+  (loop for component below d-model collect
+    (ad-mean (mapcar (lambda (state) (nth component state)) encoded))))
+
+(defun transformer-forward (model input)
+  "Run the complete feature-token Transformer and return two AD coordinates."
+  (let* ((tokens (transformer-feature-tokens model input))
+         (encoded (transformer-block model tokens))
+         (pooled (transformer-mean-pool encoded
+                                        (parametric-model-d-model model))))
     (ad-matvec (parametric-model-output-weights model) pooled
                (parametric-model-output-bias model))))
+
+(defun parametric-forward (model input)
+  "Compatibility name for TRANSFORMER-FORWARD used by existing artifacts."
+  (transformer-forward model input))
 
 (defun parametric-coordinate-loss (prediction target)
   (ad-mean

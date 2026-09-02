@@ -3,7 +3,7 @@
 (defparameter *parametric-predict-directory*
   (make-pathname :name nil :type nil :defaults *load-truename*))
 (unless (fboundp 'parametric-forward)
-  (load (merge-pathnames "model.lisp" *parametric-predict-directory*)))
+  (load (merge-pathnames "transformer.lisp" *parametric-predict-directory*)))
 
 (defvar *parametric-predict-run-main* t)
 

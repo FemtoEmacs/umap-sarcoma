@@ -16,12 +16,25 @@ sbcl --script smc-trainer/build-corpus.lisp \
 sbcl --script smc-trainer/validate-corpus.lisp \
   smc-trainer/corpus/pilot-parametric-umap.sexp
 
+# Partition the corpus without splitting study groups.
+sbcl --script smc-trainer/shard-corpus.lisp \
+  smc-trainer/corpus/pilot-parametric-umap.sexp \
+  smc-trainer/corpus/pilot-shards 25
+
+# The validator and trainer accept the shard manifest directly.
+sbcl --script smc-trainer/validate-corpus.lisp \
+  smc-trainer/corpus/pilot-shards/manifest.sexp
+
 sbcl --script vendor/test-cases/run-tests.lisp \
   smc-trainer/tests.lisp
 
 # Verify full-gradient training, one-record overfitting, and weight round-trip.
 sbcl --script vendor/test-cases/run-tests.lisp \
   smc-trainer/trainer-tests.lisp
+
+# Verify shard integrity and exact single-file/sharded training equivalence.
+sbcl --script vendor/test-cases/run-tests.lisp \
+  smc-trainer/shard-tests.lisp
 
 # Fit the coordinate-only baseline on the declared training split.
 sbcl --script smc-trainer/train.lisp \
@@ -40,14 +53,20 @@ sbcl --script smc-trainer/demo/build-demo.lisp \
   smc-trainer/demo/umap-insertion-demo.html
 ```
 
-This is a distillation corpus for a future numerical encoder. It is not a text
+This is a distillation corpus for the numerical Transformer encoder in
+`transformer.lisp`. It is not a text
 corpus and does not use the llmTrainer tokenizer or its frozen token encoder.
-The future trainer may reuse its dependency-free arrays, seeded initialization,
-activation functions, and weight serialization, but it must implement full
-gradient training from the numeric inputs to the two coordinate targets.
+The trainer uses dependency-free scalar automatic differentiation, seeded
+initialization, and S-expression weight serialization, with full-gradient
+training from numeric inputs to the two coordinate targets.
 
-`model.lisp` now supplies the first trainable milestone: a one-block,
+`transformer.lisp` supplies the first trainable milestone: a one-block,
 single-head feature-token Transformer with scalar automatic differentiation.
+Its architecture is deliberately visible as separate Common Lisp functions:
+`transformer-feature-tokens`, `transformer-self-attention`,
+`transformer-feed-forward`, `transformer-block`, `transformer-mean-pool`, and
+`transformer-forward`. `parametric-forward` remains as a compatibility wrapper
+for existing scripts and saved artifacts.
 Gradients pass through the feature embeddings, scalar projection, attention,
 normalization, feed-forward block, pooling, and two-coordinate regression head.
 The milestone deliberately overfits one observation and saves and reloads
@@ -81,3 +100,13 @@ The validation split is grouped by study so observations from one study never
 appear in both partitions. Because the target atlas itself was fitted using all
 90 observations, validation measures out-of-study approximation of a fixed
 atlas; it is not an independent validation of the atlas's medical structure.
+
+## Sharded corpus
+
+`shard-corpus.lisp` writes a small manifest plus independently readable shard
+files. Records remain in their original order, and a study group is never divided
+between shards. The record limit is therefore a soft limit when one complete
+group is larger. `train.lisp` streams the shards for every epoch and retains the
+same deterministic global rotation used by the single-file trainer. Shared
+feature, preprocessing, coordinate-system, and split metadata live in the
+manifest. See `paper/shard.md` for the format and design rationale.
