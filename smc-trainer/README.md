@@ -9,19 +9,10 @@ cluster, and medical label.
 Build and validate it from the repository root:
 
 ```sh
-sbcl --script smc-trainer/build-corpus.lisp \
+sbcl --script smc-trainer/build-sharded-corpus.lisp \
   awrs-smc/pilot-search-awrs-result.sexp \
-  smc-trainer/corpus/pilot-parametric-umap.sexp
-
-sbcl --script smc-trainer/validate-corpus.lisp \
-  smc-trainer/corpus/pilot-parametric-umap.sexp
-
-# Partition the corpus without splitting study groups.
-sbcl --script smc-trainer/shard-corpus.lisp \
-  smc-trainer/corpus/pilot-parametric-umap.sexp \
   smc-trainer/corpus/pilot-shards 25
 
-# The validator and trainer accept the shard manifest directly.
 sbcl --script smc-trainer/validate-corpus.lisp \
   smc-trainer/corpus/pilot-shards/manifest.sexp
 
@@ -32,24 +23,24 @@ sbcl --script vendor/test-cases/run-tests.lisp \
 sbcl --script vendor/test-cases/run-tests.lisp \
   smc-trainer/trainer-tests.lisp
 
-# Verify shard integrity and exact single-file/sharded training equivalence.
+# Verify physical shard count, streaming integrity, and deterministic training.
 sbcl --script vendor/test-cases/run-tests.lisp \
   smc-trainer/shard-tests.lisp
 
 # Fit the coordinate-only baseline on the declared training split.
 sbcl --script smc-trainer/train.lisp \
-  smc-trainer/corpus/pilot-parametric-umap.sexp \
-  smc-trainer/weights/pilot-coordinate-baseline.sexp 100 0.002d0
+  smc-trainer/corpus/pilot-shards/manifest.sexp \
+  smc-trainer/weights/pilot-coordinate-sharded.sexp 100 0.002d0
 
 # Supply six raw feature values in feature-schema order.
 sbcl --script smc-trainer/predict.lisp \
-  smc-trainer/weights/pilot-coordinate-baseline.sexp \
+  smc-trainer/weights/pilot-coordinate-sharded.sexp \
   '(0.8 0.1 0.2 2.0 1.0 0.3)'
 
 # Build the clinician-facing before/after insertion demonstration.
 sbcl --script smc-trainer/demo/build-demo.lisp \
-  smc-trainer/corpus/pilot-parametric-umap.sexp \
-  smc-trainer/weights/pilot-coordinate-baseline.sexp \
+  smc-trainer/corpus/pilot-shards/manifest.sexp \
+  smc-trainer/weights/pilot-coordinate-sharded.sexp \
   smc-trainer/demo/umap-insertion-demo.html
 ```
 
@@ -103,10 +94,13 @@ atlas; it is not an independent validation of the atlas's medical structure.
 
 ## Sharded corpus
 
-`shard-corpus.lisp` writes a small manifest plus independently readable shard
-files. Records remain in their original order, and a study group is never divided
+`build-sharded-corpus.lisp` writes a small manifest plus independently readable
+shard files directly from the AWRS--SMC result. Its temporary sequential stream
+is deleted after partitioning. Records remain in their original order,
+and a study group is never divided
 between shards. The record limit is therefore a soft limit when one complete
-group is larger. `train.lisp` streams the shards for every epoch and retains the
-same deterministic global rotation used by the single-file trainer. Shared
+group is larger. A completed study group that reappears later in the input is
+rejected. `train.lisp` streams the shards for every epoch and retains the
+same deterministic global rotation on every run. Shared
 feature, preprocessing, coordinate-system, and split metadata live in the
 manifest. See `paper/shard.md` for the format and design rationale.

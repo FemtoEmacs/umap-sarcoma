@@ -45,7 +45,7 @@
          (when (eq split :train) (incf training))
          (incf count))))
     (unless (plusp training) (error "Corpus has no training records."))
-    (when (and (eq (getf source :kind) :shards)
+    (when (and (member (getf source :kind) '(:stream :shards))
                (/= count (getf metadata :record-count)))
       (error "Manifest record count does not match its shards."))
     (format t "Validated ~D records, ~D features, ~D groups.~%"

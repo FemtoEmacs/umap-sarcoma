@@ -8,7 +8,7 @@
                          *parametric-tests-root*)))
 
 (test-cases:deftest generated-parametric-corpus-is-valid
-  (let* ((path (merge-pathnames "smc-trainer/corpus/pilot-parametric-umap.sexp"
+  (let* ((path (merge-pathnames "smc-trainer/corpus/pilot-shards/manifest.sexp"
                                 *parametric-tests-root*))
          (source (validate-parametric-corpus path))
          (record (parametric-first-record source)))
@@ -20,11 +20,12 @@
               (test-cases:check (integerp (getf item :cluster)))))))
 
 (test-cases:deftest parametric-corpus-groups-do-not-cross-splits
-  (let* ((corpus (corpus-read-form
+  (let* ((source (parametric-open-corpus-source
                   (merge-pathnames
-                   "smc-trainer/corpus/pilot-parametric-umap.sexp"
+                   "smc-trainer/corpus/pilot-shards/manifest.sexp"
                    *parametric-tests-root*)))
-         (records (getf corpus :records)))
+         (records nil))
+    (parametric-map-records source (lambda (record) (push record records)))
     (dolist (left records)
       (dolist (right records)
         (when (equal (getf left :group) (getf right :group))

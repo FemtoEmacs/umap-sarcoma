@@ -2,6 +2,7 @@
   (merge-pathnames "../" (make-pathname :name nil :type nil :defaults *load-truename*)))
 
 (load (merge-pathnames "smc-trainer/transformer.lisp" *parametric-tests-root*))
+(load (merge-pathnames "smc-trainer/shards.lisp" *parametric-tests-root*))
 (defparameter *parametric-predict-run-main* nil)
 (load (merge-pathnames "smc-trainer/predict.lisp" *parametric-tests-root*))
 
@@ -30,14 +31,13 @@
 
 (test-cases:deftest one-observation-overfit-and-roundtrip
   (let* ((corpus-path (merge-pathnames
-                       "smc-trainer/corpus/pilot-parametric-umap.sexp"
+                       "smc-trainer/corpus/pilot-shards/manifest.sexp"
                        *parametric-tests-root*))
          (weights-path (merge-pathnames
                         "smc-trainer/weights/one-observation.sexp"
                         *parametric-tests-root*))
-         (corpus (with-open-file (stream corpus-path)
-                   (let ((*read-eval* nil)) (read stream))))
-         (record (first (getf corpus :records)))
+         (source (parametric-open-corpus-source corpus-path))
+         (record (parametric-first-record source))
          (input (getf record :input)) (target (getf record :target))
          (model (initialize-parametric-model (length input))))
     (multiple-value-bind (trained initial-loss final-loss)

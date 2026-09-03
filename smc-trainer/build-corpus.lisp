@@ -6,6 +6,7 @@
   (merge-pathnames "../" *parametric-corpus-directory*))
 (defparameter *smc-search-run-main* nil)
 (load (merge-pathnames "smc/search-umap.lisp" *parametric-corpus-root*))
+(defvar *parametric-corpus-run-main* t)
 
 (defun parametric-repository-relative-name (path)
   "Return PATH relative to the repository root without embedding a machine path."
@@ -119,9 +120,24 @@
       (error "Winning coordinates must be a ~D by 2 array." used-count))
     (multiple-value-bind (means scales) (parametric-column-statistics selected)
       (let* ((standardized (parametric-standardize selected means scales))
+             (records
+               (loop for record in used-records for row from 0
+                     for group = (parametric-record-group record)
+                     collect
+                     (list :id (getf record :id)
+                           :group group
+                           :split (if (member group validation-groups :test #'equal)
+                                      :validation :train)
+                           :input (parametric-array-row standardized row)
+                           :target (parametric-array-row coordinates row)
+                           :cluster (aref assignments row)
+                           :label (getf record
+                                        (or (getf search :label-field)
+                                            (getf (getf problem :scoring)
+                                                  :label-field))))))
              (corpus
                (list
-                :format :parametric-umap-corpus :version 1
+                :format :parametric-umap-stream-corpus :version 1
                 :annotation-source :awrs-smc-winning-common-lisp-umap
                 :source-result (parametric-repository-relative-name result-path)
                 :coordinate-source (getf best :coordinate-source)
@@ -134,33 +150,19 @@
                 :split-policy
                 (list :kind :study-grouped
                       :validation-groups validation-groups)
-                :records
-                (loop for record in used-records for row from 0
-                      for group = (parametric-record-group record)
-                      collect
-                      (list :id (getf record :id)
-                            :group group
-                            :split (if (member group validation-groups
-                                               :test #'equal)
-                                       :validation :train)
-                            :input (parametric-array-row standardized row)
-                            :target (parametric-array-row coordinates row)
-                            :cluster (aref assignments row)
-                            :label (getf record
-                                         (or (getf search :label-field)
-                                             (getf (getf problem :scoring)
-                                                   :label-field))))))))
+                :record-count used-count)))
         (ensure-directories-exist output-path)
         (with-open-file (stream output-path :direction :output
                                            :if-exists :supersede
                                            :if-does-not-exist :create)
           (let ((*print-pretty* t) (*print-length* nil) (*print-level* nil))
-            (prin1 corpus stream) (terpri stream)))
+            (write corpus :stream stream) (terpri stream)
+            (dolist (record records) (write record :stream stream) (terpri stream))))
         (format t "Wrote ~D annotated examples (~D train, ~D validation) to ~A.~%"
                 used-count
-                (count :train (getf corpus :records)
+                (count :train records
                        :key (lambda (record) (getf record :split)))
-                (count :validation (getf corpus :records)
+                (count :validation records
                        :key (lambda (record) (getf record :split)))
                 output-path)
         output-path))))
@@ -171,4 +173,4 @@
       (error "Usage: sbcl --script smc-trainer/build-corpus.lisp AWRS-RESULT.sexp OUTPUT.sexp"))
     (build-parametric-umap-corpus (first arguments) (second arguments))))
 
-(parametric-corpus-main)
+(when *parametric-corpus-run-main* (parametric-corpus-main))

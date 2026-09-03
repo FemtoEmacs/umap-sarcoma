@@ -7,6 +7,13 @@
 (load (merge-pathnames "build-umap.lisp" *demo-root*))
 (defparameter *parametric-predict-run-main* nil)
 (load (merge-pathnames "smc-trainer/predict.lisp" *demo-root*))
+(unless (fboundp 'parametric-open-corpus-source)
+  (load (merge-pathnames "smc-trainer/shards.lisp" *demo-root*)))
+
+(defun demo-source-records (source)
+  (let ((records nil))
+    (parametric-map-records source (lambda (record) (push record records)))
+    (nreverse records)))
 
 (defun demo-mean-input (records label)
   (let* ((selected (remove-if-not (lambda (record)
@@ -30,8 +37,8 @@
           :x (first (getf record :target)) :y (second (getf record :target))
           :new nil)))
 
-(defun demo-new-points (corpus artifact)
-  (let* ((records (getf corpus :records))
+(defun demo-new-points (records artifact)
+  (let* (
          (labels (sort (remove-duplicates (mapcar (lambda (r) (getf r :label)) records)
                                           :test #'equal)
                        #'string<))
@@ -56,10 +63,11 @@
   (with-output-to-string (stream) (write-json value stream)))
 
 (defun build-insertion-demo (corpus-name weights-name output-name)
-  (let* ((corpus (predict-read-form corpus-name))
+  (let* ((source (parametric-open-corpus-source corpus-name))
+         (records (demo-source-records source))
          (artifact (predict-read-form weights-name))
-         (existing (demo-existing-points (getf corpus :records)))
-         (new (demo-new-points corpus artifact))
+         (existing (demo-existing-points records))
+         (new (demo-new-points records artifact))
          (template (file-text (merge-pathnames "insertion-demo-template.html"
                                                *demo-directory*)))
          (page (replace-marker
