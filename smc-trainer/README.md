@@ -1,5 +1,15 @@
 # AWRS-SMC Parametric UMAP corpus
 
+## Native array implementation
+
+`transformer.lisp` implements every numerical vector and matrix as a native
+Common Lisp array. Feature embeddings, Q/K/V/O matrices, feed-forward weights,
+tokens, attention values, pooled states, and output coordinates are indexed
+with `aref`; dot products and matrix-vector products are explicit Common Lisp
+loops. BLAS and LAPACK are not used. Version-1 model files remain nested
+S-expression lists only as a portable serialization format and are converted
+to arrays when loaded.
+
 The corpus builder turns the winning AWRS-SMC UMAP into explicit numeric
 supervision. Each S-expression record contains the frozen, standardized feature
 vector under `:input` and the exact winning Common Lisp coordinates under
@@ -47,6 +57,12 @@ sbcl --script smc-trainer/demo/build-demo.lisp \
 This is a distillation corpus for the numerical Transformer encoder in
 `transformer.lisp`. It is not a text
 corpus and does not use the llmTrainer tokenizer or its frozen token encoder.
+Training learns a parametric functor from the declared numerical evidence
+space to the fixed two-coordinate atlas: new evidence profiles are carried to
+positions without moving the original atlas. “Functor” is used in this
+operational learning-theory sense; a strict category-theoretic formulation
+would additionally declare morphisms and verify preservation of identities and
+composition.
 The trainer uses dependency-free scalar automatic differentiation, seeded
 initialization, and S-expression weight serialization, with full-gradient
 training from numeric inputs to the two coordinate targets.

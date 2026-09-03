@@ -1,5 +1,10 @@
 # Sarcoma evidence UMAP
 
+For a command-by-command test from the published map through AWRS-SMC and the
+Transformer insertion demonstration, follow [`TOUR.md`](TOUR.md). In Emacs,
+the root-level `stock-tour.el` runs the shell block containing point with
+`C-c e`.
+
 This repository builds interactive UMAPs of sarcoma clinical-evidence records.
 The published `index.html` contains 600 observations derived from survival
 curves and can color the same map by sarcoma type, therapy, study, time window,

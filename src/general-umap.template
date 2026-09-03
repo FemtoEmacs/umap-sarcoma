@@ -43,7 +43,8 @@
     <main id="app">
       <div class="top">
         <h1></h1>
-        <label>Color by <select class="color-select"></select></label>
+        <label>Feature family <select class="family-select"></select></label>
+        <label>Property <select class="color-select"></select></label>
         <label>Layout <select class="layout-select"></select></label>
         <span class="status">Computing UMAP…</span>
       </div>
@@ -64,14 +65,28 @@
       const rows = __ROWS__;
       const root = document.querySelector("#app");
       const views = problem.views || [];
+      const familySelect = root.querySelector(".family-select");
       const select = root.querySelector(".color-select");
       const layoutSelect = root.querySelector(".layout-select");
       const tip = root.querySelector(".tip");
 
       document.title = problem.title;
       root.querySelector("h1").textContent = problem.title;
-      views.forEach(view => select.add(new Option(view.label, view.field)));
+      const families = [...new Set(views.map(view => view.group || "Views"))];
+      families.forEach(family => familySelect.add(new Option(family, family)));
 
+      function populateProperties() {
+        const selected = select.value;
+        select.replaceChildren();
+        views
+          .filter(view => (view.group || "Views") === familySelect.value)
+          .forEach(view => select.add(new Option(view.label, view.field)));
+        if ([...select.options].some(option => option.value === selected)) {
+          select.value = selected;
+        }
+      }
+
+      populateProperties();
       const options = problem.umap || {};
       const preprocessing = problem.preprocessing || {};
       const preservedEmbedding = rows.every(
@@ -126,10 +141,7 @@
       }
 
       const svg = d3.select("svg");
-      const series = [
-        "#2563eb", "#f59e0b", "#22a06b",
-        "#dc4c3e", "#8b5cf6", "#0891b2"
-      ];
+      const series = [...d3.schemeTableau10, ...d3.schemeSet3];
 
       function fieldValue(row, field) {
         return row[field];
@@ -283,7 +295,12 @@
           .attr("opacity", options.point_opacity ?? 0.78)
           .on("pointerenter", (event, row) => {
             tip.style.display = "block";
-            tip.innerHTML = (problem.tooltip || [])
+            const declared = problem.tooltip || [];
+            const selectedDeclared = declared.some(field => field.field === view.field);
+            const propertyFields = selectedDeclared
+              ? declared
+              : [{ field: view.field, label: view.label }, ...declared];
+            const propertyText = propertyFields
               .filter(field => {
                 const raw = fieldValue(row, field.field);
                 return !(field.omit_prefix
@@ -294,6 +311,7 @@
                 return `${field.label}: ${value}`;
               })
               .join("<br>");
+            tip.innerHTML = propertyText;
             renderTooltipPlot(row);
           })
           .on("pointermove", event => {
@@ -349,6 +367,10 @@
       }
 
       select.addEventListener("change", draw);
+      familySelect.addEventListener("change", () => {
+        populateProperties();
+        draw();
+      });
       layoutSelect.addEventListener("change", applyLayout);
       new ResizeObserver(draw).observe(root);
       applyLayout();

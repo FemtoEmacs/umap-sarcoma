@@ -1,4 +1,5 @@
-;;;; A tiny, fully trainable feature-token Transformer in portable Common Lisp.
+;;;; A tiny, fully trainable array-based Transformer in portable Common Lisp.
+;;;; Native arrays implement vectors and matrices without BLAS/LAPACK.
 
 (defparameter *trainer-seed* 20260902)
 (defparameter *trainer-state* *trainer-seed*)
@@ -114,13 +115,23 @@
     (dolist (node (reverse order)) (funcall (ad-backward node)))))
 
 (defun trainer-vector (length &optional (scale 0.08d0))
-  (loop repeat length collect (trainer-parameter scale)))
+  "Create a native one-dimensional Common Lisp parameter array."
+  (let ((result (make-array length)))
+    (dotimes (index length result)
+      (setf (aref result index) (trainer-parameter scale)))))
 
 (defun trainer-matrix (rows columns &optional (scale 0.08d0))
-  (loop repeat rows collect (trainer-vector columns scale)))
+  "Create a native array of native row arrays; no BLAS/LAPACK is used."
+  (let ((result (make-array rows)))
+    (dotimes (row rows result)
+      (setf (aref result row) (trainer-vector columns scale)))))
 
 (defun trainer-zero-vector (length)
-  (loop repeat length collect (trainer-parameter 0.0d0)))
+  (trainer-vector length 0.0d0))
+
+(defun trainer-as-vector (sequence)
+  "Return SEQUENCE as a native vector, preserving an existing vector."
+  (if (vectorp sequence) sequence (coerce sequence 'vector)))
 
 (defun initialize-parametric-model (feature-count
                                     &key (d-model *trainer-d-model*)
@@ -144,71 +155,110 @@
    :output-bias (trainer-zero-vector 2)))
 
 (defun ad-dot (left right)
-  (ad-sum (mapcar #'ad* left right)))
+  (let* ((left (trainer-as-vector left))
+         (right (trainer-as-vector right))
+         (length (length left))
+         (products (make-array length)))
+    (unless (= length (length right))
+      (error "Dot-product dimensions differ: ~D and ~D."
+             length (length right)))
+    (dotimes (index length (ad-sum products))
+      (setf (aref products index)
+            (ad* (aref left index) (aref right index))))))
 
 (defun ad-matvec (matrix vector &optional bias)
-  (loop for row in matrix for index from 0
-        collect (if bias
-                    (ad+ (ad-dot row vector) (nth index bias))
-                    (ad-dot row vector))))
+  (let* ((matrix (trainer-as-vector matrix))
+         (vector (trainer-as-vector vector))
+         (bias (and bias (trainer-as-vector bias)))
+         (result (make-array (length matrix))))
+    (dotimes (row-index (length matrix) result)
+      (let ((value (ad-dot (aref matrix row-index) vector)))
+        (setf (aref result row-index)
+              (if bias (ad+ value (aref bias row-index)) value))))))
 
-(defun ad-vector+ (left right) (mapcar #'ad+ left right))
+(defun ad-vector+ (left right)
+  (let* ((left (trainer-as-vector left))
+         (right (trainer-as-vector right))
+         (length (length left))
+         (result (make-array length)))
+    (unless (= length (length right))
+      (error "Vector dimensions differ: ~D and ~D." length (length right)))
+    (dotimes (index length result)
+      (setf (aref result index)
+            (ad+ (aref left index) (aref right index))))))
 
 (defun ad-rms-normalize (vector)
-  (let* ((squares (mapcar (lambda (x) (ad* x x)) vector))
+  (let* ((vector (trainer-as-vector vector))
+         (squares (map 'vector (lambda (x) (ad* x x)) vector))
          (denominator (ad-sqrt (ad+ (ad-mean squares)
                                     (trainer-constant *trainer-epsilon*)))))
-    (mapcar (lambda (x) (ad/ x denominator)) vector)))
+    (map 'vector (lambda (x) (ad/ x denominator)) vector)))
 
 (defun ad-softmax (scores)
   ;; Subtracting a detached maximum is numerically stable and leaves the exact
   ;; softmax derivative unchanged because softmax is translation invariant.
   (let* ((maximum (reduce #'max scores :key #'ad-value))
          (exponentials
-           (mapcar (lambda (score)
-                     (ad-exp (ad- score (trainer-constant maximum))))
-                   scores))
+           (map 'vector (lambda (score)
+                          (ad-exp (ad- score (trainer-constant maximum))))
+                scores))
          (total (ad-sum exponentials)))
-    (mapcar (lambda (value) (ad/ value total)) exponentials)))
+    (map 'vector (lambda (value) (ad/ value total)) exponentials)))
 
 (defun transformer-feature-tokens (model input)
   "Turn each scalar feature into a D-MODEL-dimensional feature token."
+  (let ((input (trainer-as-vector input)))
   (unless (= (length input) (parametric-model-feature-count model))
     (error "Expected ~D input features, received ~D."
            (parametric-model-feature-count model) (length input)))
-  (loop for value in input
-        for identity in (parametric-model-feature-embeddings model)
-        collect
-        (loop for base in identity
-              for weight in (parametric-model-scalar-weights model)
-              for bias in (parametric-model-scalar-bias model)
-              collect (ad+ base
-                           (ad+ (ad* weight (trainer-constant value)) bias)))))
+  (let* ((features (length input))
+         (d-model (parametric-model-d-model model))
+         (tokens (make-array features)))
+    (dotimes (feature features tokens)
+      (let ((token (make-array d-model))
+            (identity (aref (parametric-model-feature-embeddings model) feature))
+            (value (aref input feature)))
+        (dotimes (component d-model)
+          (setf (aref token component)
+                (ad+ (aref identity component)
+                     (ad+ (ad* (aref (parametric-model-scalar-weights model)
+                                     component)
+                               (trainer-constant value))
+                          (aref (parametric-model-scalar-bias model)
+                                component)))))
+        (setf (aref tokens feature) token))))))
 
 (defun transformer-self-attention (model tokens)
   "Apply one-head scaled dot-product self-attention to TOKENS."
   (let* ((d (parametric-model-d-model model))
-         (queries (mapcar (lambda (x) (ad-matvec (parametric-model-wq model) x)) tokens))
-         (keys (mapcar (lambda (x) (ad-matvec (parametric-model-wk model) x)) tokens))
-         (values (mapcar (lambda (x) (ad-matvec (parametric-model-wv model) x)) tokens))
-         (scale (trainer-constant (sqrt (coerce d 'double-float)))))
-    (loop for query in queries collect
-      (let* ((scores
-               (mapcar (lambda (key) (ad/ (ad-dot query key) scale)) keys))
+         (tokens (trainer-as-vector tokens))
+         (queries (map 'vector (lambda (x) (ad-matvec (parametric-model-wq model) x)) tokens))
+         (keys (map 'vector (lambda (x) (ad-matvec (parametric-model-wk model) x)) tokens))
+         (values (map 'vector (lambda (x) (ad-matvec (parametric-model-wv model) x)) tokens))
+         (scale (trainer-constant (sqrt (coerce d 'double-float))))
+         (result (make-array (length queries))))
+    (dotimes (query-index (length queries) result)
+      (let* ((query (aref queries query-index))
+             (scores (map 'vector
+                          (lambda (key) (ad/ (ad-dot query key) scale))
+                          keys))
              (probabilities (ad-softmax scores))
-             (mixed
-               (loop for component below d collect
-                 (ad-sum
-                  (loop for probability in probabilities
-                        for value in values
-                        collect (ad* probability (nth component value)))))))
-        (ad-matvec (parametric-model-wo model) mixed)))))
+             (mixed (make-array d)))
+        (dotimes (component d)
+          (let ((weighted (make-array (length probabilities))))
+            (dotimes (token-index (length probabilities))
+              (setf (aref weighted token-index)
+                    (ad* (aref probabilities token-index)
+                         (aref (aref values token-index) component))))
+            (setf (aref mixed component) (ad-sum weighted))))
+        (setf (aref result query-index)
+              (ad-matvec (parametric-model-wo model) mixed))))))
 
 (defun transformer-feed-forward (model state)
   "Apply the position-wise two-layer feed-forward network to one token."
-  (let ((hidden (mapcar #'ad-tanh
-                        (ad-matvec (parametric-model-w1 model) state
-                                   (parametric-model-b1 model)))))
+  (let ((hidden (map 'vector #'ad-tanh
+                     (ad-matvec (parametric-model-w1 model) state
+                                (parametric-model-b1 model)))))
     (ad-matvec (parametric-model-w2 model) hidden
                (parametric-model-b2 model))))
 
@@ -216,19 +266,23 @@
   "Apply self-attention and feed-forward sublayers with residual RMSNorm."
   (let* ((attention (transformer-self-attention model tokens))
          (after-attention
-           (mapcar (lambda (token attended)
-                     (ad-rms-normalize (ad-vector+ token attended)))
-                   tokens attention)))
-    (mapcar
-     (lambda (state)
-       (ad-rms-normalize
-        (ad-vector+ state (transformer-feed-forward model state))))
-     after-attention)))
+           (map 'vector (lambda (token attended)
+                          (ad-rms-normalize (ad-vector+ token attended)))
+                tokens attention)))
+    (map 'vector
+         (lambda (state)
+           (ad-rms-normalize
+            (ad-vector+ state (transformer-feed-forward model state))))
+         after-attention)))
 
 (defun transformer-mean-pool (encoded d-model)
   "Mean-pool encoded feature tokens into one D-MODEL-dimensional vector."
-  (loop for component below d-model collect
-    (ad-mean (mapcar (lambda (state) (nth component state)) encoded))))
+  (let* ((encoded (trainer-as-vector encoded))
+         (pooled (make-array d-model)))
+    (dotimes (component d-model pooled)
+      (setf (aref pooled component)
+            (ad-mean
+             (map 'vector (lambda (state) (aref state component)) encoded))))))
 
 (defun transformer-forward (model input)
   "Run the complete feature-token Transformer and return two AD coordinates."
@@ -244,11 +298,14 @@
   (transformer-forward model input))
 
 (defun parametric-coordinate-loss (prediction target)
-  (ad-mean
-   (mapcar (lambda (predicted expected)
-             (let ((difference (ad- predicted (trainer-constant expected))))
-               (ad* difference difference)))
-           prediction target)))
+  (let ((prediction (trainer-as-vector prediction))
+        (target (trainer-as-vector target)))
+    (ad-mean
+     (map 'vector (lambda (predicted expected)
+                    (let ((difference
+                            (ad- predicted (trainer-constant expected))))
+                      (ad* difference difference)))
+          prediction target))))
 
 (defun parametric-model-parameter-groups (model)
   (list (parametric-model-feature-embeddings model)
@@ -261,6 +318,8 @@
 
 (defun trainer-flatten (tree)
   (cond ((null tree) nil) ((ad-p tree) (list tree))
+        ((arrayp tree)
+         (loop for value across tree append (trainer-flatten value)))
         ((listp tree) (mapcan #'trainer-flatten tree))
         (t nil)))
 
@@ -302,12 +361,16 @@
     (values model initial-loss final-loss)))
 
 (defun parametric-predict (model input)
-  (mapcar #'ad-value (parametric-forward model input)))
+  ;; Keep the public coordinate result list-compatible for existing callers;
+  ;; all Transformer tensor computation above uses native arrays.
+  (coerce (map 'vector #'ad-value (parametric-forward model input)) 'list))
 
 (defun trainer-values (tree)
-  (if (and (listp tree) (or (null tree) (listp (first tree))))
-      (mapcar #'trainer-values tree)
-      (mapcar #'ad-value tree)))
+  ;; Serialize arrays as lists to retain compatibility with version-1 models.
+  (if (and (arrayp tree)
+           (or (zerop (length tree)) (arrayp (aref tree 0))))
+      (loop for value across tree collect (trainer-values value))
+      (loop for value across tree collect (ad-value value))))
 
 (defun parametric-model-form (model)
   (let ((groups (parametric-model-parameter-groups model)))
@@ -318,10 +381,15 @@
           :parameters (mapcar #'trainer-values groups))))
 
 (defun trainer-nodes-from-values (tree)
-  (if (and (listp tree) (or (null tree) (listp (first tree))))
-      (mapcar #'trainer-nodes-from-values tree)
-      (mapcar (lambda (value) (make-ad-node (coerce value 'double-float)
-                                            :parameter-p t)) tree)))
+  ;; Accept the historical nested-list representation and rebuild array tensors.
+  (let ((tree (trainer-as-vector tree)))
+    (if (and (plusp (length tree))
+             (or (listp (aref tree 0)) (arrayp (aref tree 0))))
+        (map 'vector #'trainer-nodes-from-values tree)
+        (map 'vector
+             (lambda (value)
+               (make-ad-node (coerce value 'double-float) :parameter-p t))
+             tree))))
 
 (defun form-parametric-model (form)
   (unless (and (eq (getf form :format) :parametric-feature-transformer)

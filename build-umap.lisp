@@ -53,10 +53,8 @@
 
 (defun scalar (x)
   (let ((v (trim x)))
-    (cond ((or (string-equal v "true") (string-equal v "t")) t)
-          ((or (string-equal v "false")
-               (string-equal v "nil")
-               (string= v ""))
+    (cond ((string-equal v "true") t)
+          ((or (string-equal v "false") (string= v ""))
            nil)
           ((find #\# v)
            (error "CSV reader-dispatch syntax is forbidden in cell ~S." v))
