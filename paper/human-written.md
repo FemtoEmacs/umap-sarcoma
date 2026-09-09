@@ -65,74 +65,88 @@ Codex GPT, describe how the parametric UMAP implemented in /stock-umap works. De
 
 This section was written entirely by Codex GPT, a GenAI, to show its ability to document a project it assisted with. A full discussion of the usefulness of GenAI in projects like this one is left to the Conclusion section. However, I advise the reader not to spend their precious time trying to understand what Codex GPT wrote below. It may have many strengths, but writing isn't one of them.
 
-Codex GPT 6 Astra, write the next subsection. At the beginning of the subsection, add a warning that the subsection was entirely written by a GenAI.
+Codex GPT 6 Astra, write the next subsection. At the beginning of the subsection, add a warning that the subsection was entirely written by a GenAI. Follow the `outline.md` at https://github.com/FemtoEmacs/umap-sarcoma/. Explain what a map is and why we need maps. Then explain what a point is. Don't forget Euclid's and Descartes' contributions to the point concept. Only then should you address the title of the section. Don't modify anything that I wrote, not even this prompt.
 
-### A clinical evidence map for network analysis
+### A clinical evidence map for network meta-analysis
 
+Open a map of the Earth and look at two neighboring cities. The Earth is a
+three-dimensional body with a curved surface, but the map is a flat,
+two-dimensional picture. The cities are represented by dots, and cities that
+are close on the Earth's surface are usually close on the map. That simple
+property is what makes the map useful. It lets us see relationships that would
+be much harder to understand from a table containing the latitude and longitude
+of every city.
 
-## Old stuff
-This section was written entirely by Codex GPT, a GenAI, to show its ability to document a project it assisted with. A full discussion of the usefulness of GenAI in projects like this one is left to the Conclusion section. However, I advise the reader not to spend their precious time trying to understand what Codex GPT wrote below. It may have many strengths, but writing isn't one of them.
+Maps do not preserve everything. Anyone who has tried to flatten an orange peel
+has met the problem: a curved surface must be stretched, cut, or distorted to
+fit on a flat sheet. A useful map preserves the relationships needed for its
+purpose. A road map emphasizes roads and nearby places. A weather map emphasizes
+temperature, wind, or rain. Neither attempts to reproduce the entire world.
 
-The project first constructs a fixed, nonparametric UMAP atlas from measured
-stock properties, following the neighborhood-preserving method of McInnes et
-al. [3]. It then trains a small Transformer to learn a parametric function from
-the 36-dimensional stock vector to the atlas's two coordinates, an approach
-related to Parametric UMAP [2]. An unseen stock can therefore be inserted
-without recalculating UMAP or moving the original points. The atlas describes
-historical similarity; it does not forecast returns or recommend investments.
+But what exactly is the dot that marks a city? Imagine arranging to meet a
+friend. Saying “Toronto” leaves an enormous area to search. Naming a hospital
+narrows it, naming a room narrows it further, and naming one exact position in
+the room leaves no smaller place in which the two of you could miss each other.
+This is the intuition behind Euclid's definition: “A point is that which has no
+part” [12]. The dot printed on a map has a size; the point represented by the
+dot has only a position.
 
-### `build-umap.lisp`
+Descartes showed how to give that position with numbers [13]. On a piece of
+paper, one number tells us how far to move from left to right and another tells
+us how far to move from bottom to top. The pair of numbers is called a pair of
+Cartesian coordinates. It connects arithmetic with geometry: a position
+becomes something that we can record and calculate.
 
-`build-umap.lisp` is the general, manifest-driven page builder. It reads the
-problem S-expression, resolves and validates the declared CSV data, applies
-the requested transformations, and places the records and configuration in an
-HTML page. The page either displays preserved coordinates or computes UMAP in
-the browser with pinned JavaScript modules. Domain names and stock features
-remain in the manifest and data rather than being hardcoded in the builder.
-The build itself requires SBCL but no Quicklisp, Python, Node.js, or Conda [5].
+The two numbers do not have to describe a physical position. Put height along
+the bottom of a graph and weight along its side. A person who is 1.70 metres
+tall and weighs 70 kilograms becomes a point at the corresponding pair of
+coordinates. Height and weight can then be combined to calculate body mass
+index. The point does not represent the whole person. It represents that person
+for the particular question being asked.
 
-### `TOUR.md`
+Now add age. Each person needs three numbers, so the points occupy a
+three-dimensional space. Add blood pressure, heart rate, blood glucose, and
+dozens of laboratory measurements, and the same idea still works
+mathematically. Each new property supplies another coordinate and another
+dimension. We call these properties **features**. Unfortunately, although the
+computer can calculate with hundreds of dimensions, a human cannot look into
+such a space and see its neighborhoods.
 
-`TOUR.md` is the executable guide and the shortest route through the complete
-experiment. Its ordered commands reproduce the first stock-month map, robust
-company profiles, the S&P 500 atlas, design search, negative controls, corpus
-curation, Transformer training, and insertion of unseen stocks. With
-`stock-tour.el`, Emacs opens the guide above a dedicated Eshell; `C-c e` runs
-the shell block at point. Expected row counts, scores, and browser checks make
-the tour both documentation and a manual reproducibility test [5].
+Clinical evidence creates the same difficulty. A study may be described by its
+population, sarcoma type, therapy, endpoint, follow-up time, and measurements
+from a survival curve. These features give each evidence observation a position
+in a multidimensional space. UMAP makes a two-dimensional map of that space
+[3]. It tries to preserve neighborhoods: observations that are similar in the
+medical feature space should appear near one another on the page. Groups of
+nearby points form visible clusters, just as neighboring cities form visible
+regions on a geographic map.
 
-### `README.md` and `data/`
+This is why an evidence map can help prepare a network meta-analysis. A
+traditional meta-analysis combines results from independent studies that ask a
+similar medical question. A network meta-analysis goes further: it connects
+several treatments through available studies and combines direct and indirect
+comparisons [14]. If one set of trials compares treatment A with B and another
+compares B with C, the shared treatment B may help the analysis compare A with
+C. For that reasoning to be meaningful, reviewers must understand whether the
+studies are sufficiently alike in the characteristics that can change treatment
+effects.
 
-`README.md` is the reference manual: it records requirements, commands,
-schemas, feature definitions, outputs, tests, and scientific limitations.
-`data/` separates preserved sources from derived tables. The reproducible S&P
-500 run starts with a saved constituent snapshot and cached Nasdaq daily CSVs,
-then derives 29,926 stock-month records for 498 securities and 36 numerical
-properties. Derived CSV files should be rebuilt, not edited by hand. The notes
-also disclose survivorship, membership look-ahead, and corporate-action risks,
-so the data are suitable for method testing rather than trading claims [5].
+The UMAP lets the reviewers see those characteristics together. In the sarcoma
+pilot, they can color the same map by sarcoma type, therapy, study, time window,
+and survival measurement [4]. Moving the pointer over a point reveals the study
+information and its small time-to-event curve. A tight group may suggest studies
+that deserve comparison. A distant point may expose an unusual population,
+treatment, measurement, or follow-up period that would have been easy to miss
+in a table.
 
-### `awrs-smc/`
+The two maps answer different questions. The UMAP maps similarity among pieces
+of clinical evidence; the treatment network maps which interventions were
+compared in the studies. The first helps people inspect the evidence from which
+the second may be built. Recent work on updating the PRISMA guideline for
+network meta-analysis emphasizes exactly the kinds of decisions that must be
+made visible, including how intervention nodes are defined and how homogeneity
+and transitivity are assessed [15].
 
-`awrs-smc/` contains the domain-independent particle engine; stock proposal
-spaces, constraints, and scoring potentials remain under `stk-specific/`.
-Candidate analytical designs are proposed, rejected when invalid, weighted by
-their evidence, and resampled when effective sample size becomes too small.
-The audit output retains particles, weights, rejections, ESS, resampling, and
-the selected design. This project adapts the AWRS-SMC idea rather than claiming
-an identical language-model sampler. The cited AWRS work includes Alexander K.
-Lew and combines adaptive rejection with SMC importance correction [8].
-
-### `smc-trainer/`
-
-`smc-trainer/` implements the learned map from 36 properties to two fixed
-atlas coordinates. Its small Transformer represents features as tokens and
-uses native Common Lisp arrays and explicit numerical loops, without
-BLAS/LAPACK. Portable S-expressions store the corpus and trained weights. In
-the preserved experiment, 280 confident cluster-core stocks train the model
-and 15 difficult boundary stocks remain withheld for validation. Prediction
-inserts a new point into the fixed atlas; it does not rerun UMAP or alter the
-positions of the training stocks [5].
 
 ## Conclusion
 
@@ -204,4 +218,17 @@ September 7, 2026.
 https://github.com/KartikeyBartwal/Encoder-Transformer-From-Scratch-in-C/.
 Accessed September 7, 2026.
 
+[12] Euclid. *The Thirteen Books of Euclid's Elements*. Translated by Thomas L.
+Heath. 2nd ed. New York: Dover Publications; 1956.
 
+[13] Descartes R. *The Geometry of René Descartes*. Translated by David Eugene
+Smith and Marcia L. Latham. New York: Dover Publications; 1954.
+
+[14] Caldwell DM, Ades AE, and Higgins JPT. Simultaneous comparison of multiple
+treatments: combining direct and indirect evidence. *BMJ*. 2005;331:897–900.
+https://doi.org/10.1136/bmj.331.7521.897
+
+[15] Veroniki AA, Tricco AC, Rangira D, et al. Updating the PRISMA reporting
+guideline for network meta-analysis: a scoping review. *Journal of Clinical
+Epidemiology*. 2025;188:111985.
+https://doi.org/10.1016/j.jclinepi.2025.111985
