@@ -3,5 +3,7 @@
 *.lx64fsl
 *.o
 *~
+\#*\#
+.#*
 .DS_Store
 tests/tmp/
