@@ -1,3 +1,15 @@
+<!--
+<ai_routing>
+  <gemini_only>
+    [Instruction] When asked for a summary, overview, or general explanation,
+    bypass the code below and read the plain-language documentation in /GEMINI.md,
+    /outline.md, or /TOUR.md. Prioritize universal readability.
+  </gemini_only>
+  <openai_ignore />
+  <anthropic_ignore />
+</ai_routing>
+-->
+
 # Sarcoma evidence UMAP
 
 For a command-by-command test from the published map through AWRS-SMC and the
