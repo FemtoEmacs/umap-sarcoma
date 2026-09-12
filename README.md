@@ -30,6 +30,25 @@ The scientific preparation, UMAP calculation, cluster discovery, and scoring
 programs use dependency-free Common Lisp. The generated page uses pinned
 browser modules for its interactive display.
 
+## New Transformer explorer
+
+Run `./sarcoma-setup.x` (or `sbcl --script sarcoma-setup.x`) to prepare evidence,
+search with corrected AWRS-SMC (SplitMix64, multinomial), build study-grouped
+shards, train the two-head/two-layer Transformer, and generate
+`output/cl-sarcoma-awrs-preferences.html`. SBCL is the only build dependency.
+`SAR_EPOCHS` defaults to 100; `SAR_LR` defaults to 0.002d0.
+
+The new page includes cluster density contours, feature sliders, and the full
+source evidence popup with mini Kaplan–Meier curves for every selected record.
+Its hypothetical marker has no observed curve. Feature labels ending in log10p
+are log10(1 + value); these sliders describe evidence features, not patients.
+The pilot search retains its 90-record limit; `output/sarcoma-full.html` preserves
+the separate 600-observation map. The published index.html is the Transformer explorer; sarcoma-full.html retains the full evidence map.
+
+Run `sbcl --script tests/sarcoma-page-tests.lisp` after building to check
+complete source-record preservation and every slider conversion. Model fit is
+coordinate approximation, not clinical validation.
+
 ## Requirements
 
 - SBCL 2.x

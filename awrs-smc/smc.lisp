@@ -49,21 +49,56 @@
           collect (copy-awrs-particle-for-resampling
                    (nth index particles) new-weight))))
 
+(defun systematic-resample (particles state)
+  "Systematic resampling (Kitagawa 1996): one shared random offset and M
+evenly spaced draws along the cumulative weight, instead of M independent
+draws. Same marginal selection probability w/W and the same post-weight W/M
+as MULTINOMIAL-RESAMPLE, but much lower variance in realized copy counts for
+the same particle count -- a standard SMC variance-reduction technique.
+
+This is NOT part of the source paper's Algorithm 2 (which specifies plain
+multinomial resampling; see MULTINOMIAL-RESAMPLE above); it is offered here
+as an opt-in. Pass :RESAMPLING-METHOD :SYSTEMATIC to RUN-AWRS-SMC to use it."
+  (let* ((count (length particles))
+         (particle-vector (coerce particles 'vector))
+         (weight-vector (map 'vector #'awrs-particle-weight particle-vector))
+         (total (reduce #'+ weight-vector))
+         (new-weight (/ total count))
+         (offset (* new-weight (awrs-random-unit state)))
+         (cumulative (aref weight-vector 0))
+         (cursor 0))
+    (loop for m below count
+          for target = (+ offset (* m new-weight))
+          do (loop while (and (< cumulative target) (< cursor (1- count)))
+                   do (incf cursor) (incf cumulative (aref weight-vector cursor)))
+          collect (copy-awrs-particle-for-resampling
+                   (aref particle-vector cursor) new-weight))))
+
 (defun run-awrs-smc (proposal-function constraint-function
                      &key (particle-count 5) (resampling-threshold 0.5d0)
                        (end-marker :eos) (maximum-steps 100)
                        (seed 20260902) report-exact-z
-                       terminal-potential-function)
+                       terminal-potential-function
+                       (resampling-method :multinomial))
   "Run Algorithm 2 using AWRS as the properly weighted token proposal.
 
 PROPOSAL-FUNCTION receives a prefix and returns a normalized categorical alist.
 CONSTRAINT-FUNCTION receives a prefix and candidate value. END-MARKER completes
-a particle and is not included in its returned value sequence."
+a particle and is not included in its returned value sequence.
+
+Each proposal step runs AWRS-SAMPLE as-is -- one accepted trace plus exactly
+one continuation trace, with no budget/ADDITIONAL-TRACES knob; see
+AWRS-SAMPLE's docstring for why. RESAMPLING-METHOD is :MULTINOMIAL
+(Algorithm 2's own method, and the default) or :SYSTEMATIC (a lower-variance
+opt-in; see SYSTEMATIC-RESAMPLE)."
   (unless (and (integerp particle-count) (plusp particle-count))
     (error "PARTICLE-COUNT must be positive."))
   (unless (and (realp resampling-threshold)
                (< 0 resampling-threshold) (<= resampling-threshold 1))
     (error "RESAMPLING-THRESHOLD must be in (0,1]."))
+  (unless (member resampling-method '(:multinomial :systematic))
+    (error "RESAMPLING-METHOD must be :MULTINOMIAL or :SYSTEMATIC, got ~S."
+           resampling-method))
   (let* ((state (make-awrs-random-state seed))
          (particles (loop repeat particle-count collect (make-awrs-particle)))
          (history '()) (iterations 0) (interactions 0) (resampling-count 0)
@@ -114,7 +149,9 @@ a particle and is not included in its returned value sequence."
                (resampled-p (< ess-before
                                (* resampling-threshold particle-count))))
           (when resampled-p
-            (setf particles (multinomial-resample particles state))
+            (setf particles (ecase resampling-method
+                              (:multinomial (multinomial-resample particles state))
+                              (:systematic (systematic-resample particles state))))
             (incf resampling-count))
           (push (list :iteration iterations :active-before active-before
                       :particle-interactions active-before
@@ -124,6 +161,12 @@ a particle and is not included in its returned value sequence."
                       :awrs-calls (nreverse iteration-calls))
                 history))))
     (let* ((normalizer (/ (particle-population-weight particles) particle-count))
+           ;; SELECTED is a stochastic draw from the final weighted particle
+           ;; population, proportional to weight -- the literal SMC output
+           ;; (Algorithm 1's implicit posterior sample). Callers wanting one
+           ;; deterministic "best" particle instead (as every caller in this
+           ;; codebase currently does) should re-rank PARTICLES by their own
+           ;; quality metric and take the argmax, not use this field.
            (selected-index (weighted-particle-index particles state))
            (selected (nth selected-index particles)))
       (make-awrs-smc-result
@@ -132,6 +175,7 @@ a particle and is not included in its returned value sequence."
        (list :algorithm :smc-with-properly-weighted-awrs-proposal
              :particle-count particle-count
              :resampling-threshold resampling-threshold
+             :resampling-method resampling-method
              :seed seed :iterations iterations :interactions interactions
              :resampling-count resampling-count
              :awrs-conditional-draws awrs-draws

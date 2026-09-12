@@ -1,112 +1,42 @@
-# AWRS-SMC UMAP search
+# General AWRS-SMC engine
 
-This directory applies Adaptive Weighted Rejection Sampling (AWRS) and
-Sequential Monte Carlo (SMC) to the real UMAP feature search. It is written in
-dependency-free Common Lisp. It does not require Python, Node.js, or Quicklisp.
+This directory contains the domain-independent Adaptive Weighted Rejection
+Sampling and Sequential Monte Carlo implementation. Stock-specific proposal
+spaces, potentials, and corpus-curation rules live in `../stk-specific/`.
 
-The implementation follows Definition 2 and Algorithm 2 in Lipkin et al.,
-*Adaptive Weighted Rejection Sampling* (2025):
-
-- <https://arxiv.org/abs/2504.05410>
-- <https://github.com/genlm/genlm-control>
-
-`awrs.lisp` implements AWRS with one additional trace. `smc.lisp` manages the
-weighted particles, ESS, and multinomial resampling. `search-umap.lisp` joins
-that algorithm to the existing Common Lisp UMAP, DBSCAN, and V-measure code.
-
-## Search for a UMAP
-
-From the root of the cloned repository, run:
+Run its general tests from the project root:
 
 ```sh
-sbcl --script awrs-smc/search-umap.lisp \
-  smc/pilot-search.sexp \
-  awrs-smc/pilot-search-awrs-result.sexp
+sbcl --script awrs-smc/tests.lisp
 ```
 
-The input is the same real search specification used by the earlier SMC
-program. It names the database manifest, label field, UMAP settings, feature
-columns, and allowed transformations. Nothing about the pilot data is
-hardcoded in AWRS-SMC.
+Do not introduce stock names, ticker conventions, or market features here. If
+a change is genuinely general, apply the identical change in `umap-sarcoma`.
 
-For each feature, AWRS proposes either exclusion or one of that feature's
-declared transformations. The constraint enforces the minimum and maximum
-feature counts. It cannot select an undeclared transformation. Each completed
-particle builds a UMAP in Common Lisp, finds DBSCAN clusters, and calculates
-V-measure. The terminal potential is
-`exp(beta * quality - adjacency-strength * adjacency-cost)`. Adjacency cost is
-the mean nearest boundary gap between clusters, normalized by DBSCAN epsilon.
-The result file contains
-the best real feature recipe and complete telemetry.
+## Recent changes
 
-Set `:adjacency-strength` in the search settings. It defaults to `0.0d0`, which
-preserves the previous target. Larger values increasingly favor nearby
-clusters. Increasing `:particles` and lowering `:resampling-threshold` retains
-more distinct terminal recipes for this potential to compare. The pilot starts
-with strength `4.0d0`, 32 particles, and threshold `0.25d0`.
-
-## Generate HTML
-
-After the search finishes, run:
-
-```sh
-sbcl --script smc/build-best-html.lisp \
-  awrs-smc/pilot-search-awrs-result.sexp \
-  awrs-smc/pilot-search-awrs-best.html
-```
-
-Open `awrs-smc/pilot-search-awrs-best.html` in a browser. The builder also
-writes `pilot-search-awrs-best-data.sexp` and
-`pilot-search-awrs-best-problem.sexp`. Those files preserve the selected data
-and settings used by the page. AWRS-SMC stores the winning Common Lisp
-coordinates, and the HTML renders those exact optimized coordinates by
-default. Its Layout selector can recompute the winning feature recipe with
-`umap-js`, making the two UMAP implementations directly comparable without
-discarding the scored layout.
-
-To start a fresh run, delete these four generated files:
-
-```text
-awrs-smc/pilot-search-awrs-result.sexp
-awrs-smc/pilot-search-awrs-best.html
-awrs-smc/pilot-search-awrs-best-data.sexp
-awrs-smc/pilot-search-awrs-best-problem.sexp
-```
-
-Do not delete `smc/pilot-search.sexp`; it is the input specification.
-
-## Telemetry
-
-Telemetry is recorded inside:
-
-pilot-search-awrs-result.sexp
-
-Look for the top-level :TELEMETRY field. It contains:
-
-- :PARTICLE-COUNT
-- :ITERATIONS
-- :INTERACTIONS
-- :RESAMPLING-COUNT
-- :AWRS-CONDITIONAL-DRAWS
-- :CONSTRAINT-CHECKS
-- :REJECTIONS
-- :TERMINAL-EVALUATIONS
-- :FINAL-ESS
-- :NORMALIZER-ESTIMATE
-- :HISTORY
-
-The result records conditional draws, constraint checks, rejected proposals,
-`psi0`, `Z-hat`, AWRS traces, particle interactions, terminal UMAP evaluations,
-ESS before and after each decision, resampling events, final particle weights,
-and the SMC normalizer estimate. It also records the raw V-measure-based score
-for every final UMAP recipe.
-
-## Tests
-
-```sh
-sbcl --script vendor/test-cases/run-tests.lisp awrs-smc/tests.lisp
-```
-
-The tests include deterministic replay, categorical validation, unique
-rejection, unbiased `Z-hat` against an exact finite calculation, the `W / M`
-resampling rule, terminal score potentials, and telemetry totals.
+- **RNG replaced.** `awrs-random-unit` now uses SplitMix64 (Steele, Lea &
+  Flood 2014) instead of a 32-bit linear congruential generator. Same call
+  signature everywhere, but every seed now produces different numbers than
+  before -- any previously saved AWRS-SMC search result (e.g.
+  `output/*-awrs-smc-result.sexp`) will not reproduce byte-for-byte from the
+  same seed anymore; it needs to be regenerated.
+- **`AWRS-SAMPLE` has no budget/`:ADDITIONAL-TRACES` parameter.** It always
+  runs Definition 2 exactly as the paper states it: one accepted trace plus
+  one continuation trace. An earlier version of this codebase added such a
+  parameter by analogy with `:RESAMPLING-METHOD`'s sibling concept in WRS
+  (Definition 1, which the paper does prove for a general budget); that
+  analogy is wrong for AWRS and produces provably biased weights for L>1
+  (a two-outcome counterexample gives E[ZHAT]=13/24 instead of 1/2). See
+  `AWRS-SAMPLE`'s docstring for the full explanation. No correct general-L
+  AWRS estimator is known, so the parameter was removed rather than merely
+  restricted -- do not re-add it without an actual proof.
+- **`RUN-AWRS-SMC` takes `:RESAMPLING-METHOD`** (`:MULTINOMIAL`, the default
+  and the source paper's Algorithm 2, or `:SYSTEMATIC`, a lower-variance
+  opt-in implemented in `SYSTEMATIC-RESAMPLE`).
+- `AWRS-SMC-RESULT-SELECTED` is a stochastic draw from the final weighted
+  particle population (the literal SMC output). Every caller in this project
+  ignores it and instead re-ranks `PARTICLES` by its own quality metric to
+  get a single deterministic "best" particle -- that pattern is correct and
+  intentional, not a bug; `-SELECTED` is documented in `smc.lisp` for anyone
+  who does want a posterior-proportional draw instead.

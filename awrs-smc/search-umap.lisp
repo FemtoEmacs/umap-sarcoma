@@ -97,6 +97,7 @@
          (maximum (or (getf settings :maximum-features) feature-count))
          (beta (or (getf settings :beta) 8.0d0))
          (adjacency-strength (or (getf settings :adjacency-strength) 0.0d0))
+         (resampling-method (or (getf settings :resampling-method) :multinomial))
          (score-cache (make-hash-table :test #'equal))
          (score-function
            (lambda (choices)
@@ -125,6 +126,7 @@
             (or (getf settings :resampling-threshold) 0.5d0)
             :maximum-steps (1+ feature-count)
             :seed (or (getf settings :smc-seed) 20260901)
+            :resampling-method resampling-method
             :terminal-potential-function
             (lambda (choices)
               (let ((components (funcall score-function choices)))

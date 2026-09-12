@@ -100,3 +100,48 @@
      (loop for call in calls sum (getf call :total-rejections)))
     (dolist (particle (awrs-smc-result-particles result))
       (test-cases:check-equal '(:keep) (awrs-particle-values particle)))))
+
+(test-cases:deftest random-unit-is-well-mixed
+  (let* ((state (make-awrs-random-state 4021))
+         (trials 20000)
+         (draws (loop repeat trials collect (awrs-random-unit state))))
+    (dolist (draw draws)
+      (test-cases:check (and (>= draw 0.0d0) (< draw 1.0d0))
+                        "Draws must land in [0, 1)"))
+    (test-cases:check-equal trials (length (remove-duplicates draws)))
+    (let ((mean (/ (reduce #'+ draws) trials)))
+      (test-cases:check (< (abs (- mean 0.5d0)) 0.01d0)
+                        "Mean of many draws should be close to 0.5"))))
+
+(test-cases:deftest systematic-resample-uses-w-over-m
+  (let* ((particles (list (make-awrs-particle :values '(:a) :weight 1.0d0)
+                          (make-awrs-particle :values '(:b) :weight 2.0d0)
+                          (make-awrs-particle :values '(:c) :weight 3.0d0)))
+         (resampled (systematic-resample particles (make-awrs-random-state 3))))
+    (test-cases:check-equal 3 (length resampled))
+    (dolist (particle resampled)
+      (test-cases:check-equal 2.0d0 (awrs-particle-weight particle)))))
+
+(test-cases:deftest resampling-method-is-validated
+  (test-cases:check-signals error
+    (run-awrs-smc (lambda (prefix) (declare (ignore prefix)) '((:eos . 1.0d0)))
+                  (lambda (prefix value) (declare (ignore prefix value)) t)
+                  :resampling-method :bogus)))
+
+(test-cases:deftest systematic-resampling-end-to-end
+  (let* ((result
+           (run-awrs-smc
+            (lambda (prefix)
+              (if prefix '((:eos . 1.0d0))
+                  '((:keep . 0.5d0) (:reject . 0.5d0))))
+            (lambda (prefix value)
+              (declare (ignore prefix))
+              (not (eq value :reject)))
+            :particle-count 4 :seed 71 :maximum-steps 2
+            :resampling-method :systematic
+            :terminal-potential-function
+            (lambda (choices) (declare (ignore choices)) 3.0d0))))
+    (test-cases:check-equal
+     :systematic (getf (awrs-smc-result-telemetry result) :resampling-method))
+    (dolist (particle (awrs-smc-result-particles result))
+      (test-cases:check-equal '(:keep) (awrs-particle-values particle)))))

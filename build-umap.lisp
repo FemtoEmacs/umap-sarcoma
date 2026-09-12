@@ -433,6 +433,37 @@
          (write-char #\} s))
         (t (write-json-string value s))))
 
+(defun write-json-pretty (value s &optional (indent 0))
+  "Like WRITE-JSON, but indented one level per nesting depth (two spaces),
+with one array element or object entry per line -- for JSON meant to be
+read by a person in the generated file's source, not just executed."
+  (flet ((pad (n) (dotimes (i n) (write-char #\Space s))))
+    (cond
+      ((null value) (write-string "null" s))
+      ((eq value t) (write-string "true" s))
+      ((numberp value) (write-string (json-number-text value) s))
+      ((stringp value) (write-json-string value s))
+      ((keywordp value) (write-json-string (json-key value) s))
+      ((and (listp value) (not (keywordp (car value))))
+       (write-char #\[ s) (terpri s)
+       (loop for item in value
+             for first = t then nil
+             do (unless first (write-char #\, s) (terpri s))
+                (pad (+ indent 2))
+                (write-json-pretty item s (+ indent 2)))
+       (terpri s) (pad indent) (write-char #\] s))
+      ((listp value)
+       (write-char #\{ s) (terpri s)
+       (loop for (key item) on value by #'cddr
+             for first = t then nil
+             do (unless first (write-char #\, s) (terpri s))
+                (pad (+ indent 2))
+                (write-json-string (json-key key) s)
+                (write-string ": " s)
+                (write-json-pretty item s (+ indent 2)))
+       (terpri s) (pad indent) (write-char #\} s))
+      (t (write-json-string value s)))))
+
 (defun replace-marker (text marker replacement)
   (let ((p (search marker text)))
     (unless p (error "Missing template marker ~A." marker))
@@ -457,8 +488,8 @@
          (template
           (file-text (merge-pathnames "src/general-umap.template"
 				      *script-directory*)))
-         (config (with-output-to-string (s) (write-json problem s)))
-         (payload (with-output-to-string (s) (write-json rows s)))
+         (config (with-output-to-string (s) (write-json-pretty problem s)))
+         (payload (with-output-to-string (s) (write-json-pretty rows s)))
          (page
           (replace-marker (replace-marker template
 			        "__PROBLEM__" config)
