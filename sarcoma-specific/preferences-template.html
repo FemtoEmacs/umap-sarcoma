@@ -191,8 +191,15 @@
           <svg role="img"></svg>
           <div class="legend" id="legend"></div>
           <p class="legend-hint">
-            Click a cluster's name above to jump every slider to that cluster's
-            representative evidence profile. A colored ring identifies the exact
+            Each cluster in the legend is named after the disease and therapy
+            that clearly dominate its members when one does (hover for more
+            clinical context), or after the one or two features that most set
+            its members apart from the rest of the atlas when no single
+            disease/therapy dominates — either way, a description of the
+            group as a whole, not any single observation.
+            Click a cluster's name above to jump every slider to the values of
+            the evidence profile closest to that cluster's center, as a
+            representative starting point. A colored ring identifies the exact
             observed point. The red star is its approximate Transformer prediction
             and may fall in another cluster. Different time windows from one study
             can belong to different clusters.
@@ -725,7 +732,9 @@
             .attr(
               "title",
               info
-                ? `Representative evidence profile for this cluster — click to place your sliders at ${titleCase(info.name)}'s values`
+                ? cluster < 0
+                  ? `${info.display_name} -- too few comparably-measured observations to trust as its own group; click to place your sliders near ${titleCase(info.name)} anyway`
+                  : `${info.clinical_note ?? info.display_name} -- click to place your sliders at this cluster's representative evidence profile, ${titleCase(info.name)}`
                 : "Click to place your sliders at this cluster's representative evidence profile",
             )
             .on("click", () => {
@@ -741,7 +750,7 @@
             .style("background", color(cluster));
           item
             .append("span")
-            .text(`${cluster < 0 ? "Noise" : `Cluster ${cluster}`}: ${info ? titleCase(info.name) : "unlabeled"}`);
+            .text(`${cluster < 0 ? "Noise" : `Cluster ${cluster}`}: ${info ? (info.display_name ?? titleCase(info.name)) : "unlabeled"}`);
         });
         const youItem = legend.append("span").attr("class", "legend-item");
         youItem.append("span").attr("class", "legend-you");

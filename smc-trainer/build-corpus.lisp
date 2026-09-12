@@ -33,7 +33,15 @@
                               sum (* delta delta))
                         (max 1 (1- rows))))))
         (setf (aref means column) mean
-              (aref scales column) (if (zerop scale) 1.0d0 scale))))
+              ;; See src/common-lisp-umap.lisp's CL-UMAP-STANDARDIZE for why
+              ;; this uses a variance floor rather than testing for exact
+              ;; zero: a column that is constant across the population (one
+              ;; curve reports it, every other record is median-imputed to
+              ;; that same value) computes a "variance" of pure floating-
+              ;; point rounding noise, not real signal, and dividing by that
+              ;; noise turns an inert column into an artificial full-scale
+              ;; one for any record whose exact bit pattern differs.
+              (aref scales column) (if (< scale 1.0d-6) 1.0d0 scale))))
     (values means scales)))
 
 (defun parametric-standardize (array means scales)
@@ -64,6 +72,18 @@
       (error "Corpus observation has no study, curve, or record identifier.")))
 
 (defun parametric-validation-groups (records)
+  ;; CAUTION: selection is a plain case-sensitive alphabetical sort, taking
+  ;; whichever group(s) sort LAST as validation. This is deterministic across
+  ;; every seed and every rebuild -- it is not a random or rotating holdout.
+  ;; In particular, a study name that happens to start with a lowercase
+  ;; letter (ASCII lowercase sorts after every uppercase letter) will always
+  ;; be chosen, regardless of anything about the study itself: "van der Graaf
+  ;; et al. 2012 (PALETTE)" was the sole validation group here purely because
+  ;; of its lowercase "v", never because it was deliberately picked to test
+  ;; generalization. A study permanently excluded from training this way gets
+  ;; systematically worse Transformer-predicted placements for any profile
+  ;; resembling it (see :NO-VALIDATION-SPLIT below, and the fourth addendum
+  ;; in ../PAZOPANIB-PLACEBO-CLUSTER-MERGE.md for how this was diagnosed).
   (let* ((groups (sort (remove-duplicates
                         (mapcar #'parametric-record-group records)
                         :test #'equal)
@@ -112,7 +132,18 @@
            (embedding-dbscan (embedding-standardized-coordinates coordinates)
                              epsilon
                              (or (getf settings :minimum-points) 5)))
-         (validation-groups (parametric-validation-groups used-records))
+         ;; :NO-VALIDATION-SPLIT t (search settings) trains the deployed
+         ;; Transformer on every record, with no held-out study at all. Use
+         ;; this for a production/deployed artifact when the ordinary
+         ;; study-grouped split (see PARAMETRIC-VALIDATION-GROUPS above)
+         ;; would otherwise permanently blind the model to one specific real
+         ;; study for reasons that have nothing to do with data quality --
+         ;; e.g. a lowercase-initial study name always sorting last. A held-
+         ;; out check for generalization can still be run separately (with
+         ;; this flag left off) when that measurement is actually wanted; it
+         ;; just should not silently gate what ships in the interactive page.
+         (validation-groups (unless (getf settings :no-validation-split)
+                              (parametric-validation-groups used-records)))
          (output-path (pathname output-name)))
     (unless (and (= (array-rank coordinates) 2)
                  (= (array-dimension coordinates 0) used-count)

@@ -87,10 +87,11 @@
          (label-field (or (getf specification :label-field)
                           (getf (getf problem :scoring) :label-field)))
          (labels (score-umap-label-vector records label-field))
+         (feature-forms (getf specification :features))
          (features
            (mapcar (lambda (form)
                      (smc-feature-from-form form (array-dimension input 1)))
-                   (getf specification :features)))
+                   feature-forms))
          (settings (getf specification :search))
          (feature-count (length features))
          (minimum (or (getf settings :minimum-features) 2))
@@ -111,10 +112,19 @@
             (lambda (prefix)
               (if (= (length prefix) feature-count)
                   '((:eos . 1.0d0))
-                  (awrs-uniform-distribution
-                   (cons :exclude
-                         (smc-feature-transformations
-                          (nth (length prefix) features))))))
+                  (let* ((index (length prefix))
+                         (transformations
+                           (smc-feature-transformations (nth index features)))
+                         (required (getf (nth index feature-forms) :required)))
+                    ;; A feature marked :required t is never offered
+                    ;; :exclude, so the stochastic search can widen or
+                    ;; reshuffle every other slot without ever being able to
+                    ;; trade this one away. Used for clinically load-bearing
+                    ;; fields (e.g. event-code, the progression/death
+                    ;; endpoint distinction) that should not depend on which
+                    ;; particle happens to score best this run.
+                    (awrs-uniform-distribution
+                     (if required transformations (cons :exclude transformations))))))
             (lambda (prefix choice)
               (if (eq choice :eos)
                   (and (= (length prefix) feature-count)

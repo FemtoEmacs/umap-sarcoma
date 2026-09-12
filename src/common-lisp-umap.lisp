@@ -72,7 +72,15 @@
                           sum (* delta delta))
                     (max 1 (1- rows))))))
           (setf (aref scales column)
-                (if (zerop scale) 1.0d0 scale)))))
+                ;; A scale near machine epsilon means the column is
+                ;; constant in this population (typically a field only one
+                ;; curve reports, median-imputed to the same value for every
+                ;; other record) rather than genuinely near-zero-variance
+                ;; real data. Treating anything under this floor as "no
+                ;; variance" keeps such a column numerically inert instead of
+                ;; letting floating-point rounding noise in its mean/variance
+                ;; get amplified into an artificial full-scale signal.
+                (if (< scale 1.0d-6) 1.0d0 scale)))))
     (dotimes (row rows result)
       (dotimes (column columns)
         (setf (aref result row column)

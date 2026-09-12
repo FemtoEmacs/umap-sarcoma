@@ -204,7 +204,26 @@
                                       maximum))
                         (evidence-mixed-features curve)
                         (list (coerce (evidence-plist curve :event-code)
-                                      'double-float)))))))
+                                      'double-float)
+                              ;; EVENT-CODE alone conflates two very
+                              ;; different situations under the same 0:
+                              ;; a disease whose natural history genuinely
+                              ;; ends in progression, not death (Desmoid
+                              ;; tumor), and a malignant disease whose trial
+                              ;; simply never reported an overall-survival
+                              ;; endpoint (e.g. chondrosarcoma-ivosidenib,
+                              ;; Tap et al. 2020 -- a short, early-phase
+                              ;; study of an incurable cancer that tracked
+                              ;; disease control instead of survival, not
+                              ;; evidence that the disease itself cannot
+                              ;; kill). Without this bit, the two are
+                              ;; indistinguishable to any model trained only
+                              ;; on EVENT-CODE, which is what let a handful
+                              ;; of chondrosarcoma-ivosidenib windows land in
+                              ;; the Desmoid cluster.
+                              (if (string= (evidence-plist curve :primary-event)
+                                           "Overall survival not reported")
+                                  1d0 0d0)))))))
 
 (defun evidence-all-window-records (curves)
   (evidence-impute-vectors

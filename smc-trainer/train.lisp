@@ -22,9 +22,16 @@
                  (incf absolute-error (abs difference))
                  (incf coordinates))))
      :split split)
-    (let ((mse (/ squared-error coordinates)))
-      (list :records records :mse mse :rmse (sqrt mse)
-            :mae (/ absolute-error coordinates)))))
+    ;; COORDINATES is 0 whenever this split is empty -- in particular, the
+    ;; validation split when :NO-VALIDATION-SPLIT trained on every record
+    ;; (see build-corpus.lisp). Report NIL rather than dividing by zero, so
+    ;; "no validation data" can never be printed or serialized as if it were
+    ;; a (misleadingly perfect) RMSE of 0.
+    (if (zerop coordinates)
+        (list :records records :mse nil :rmse nil :mae nil)
+        (let ((mse (/ squared-error coordinates)))
+          (list :records records :mse mse :rmse (sqrt mse)
+                :mae (/ absolute-error coordinates))))))
 
 (defun trainer-map-record-range (source split start end function)
   (let ((index 0))
@@ -61,11 +68,12 @@
              (incf step)
              (adam-update model optimizer step :learning-rate learning-rate))))
         (when (or (= epoch 1) (= epoch epochs) (zerop (mod epoch 10)))
-          (let ((train-metrics (trainer-split-metrics model source :train))
-                (validation-metrics (trainer-split-metrics model source :validation)))
-            (format t "Epoch ~3D train RMSE ~,6F validation RMSE ~,6F~%"
+          (let* ((train-metrics (trainer-split-metrics model source :train))
+                 (validation-metrics (trainer-split-metrics model source :validation))
+                 (validation-rmse (getf validation-metrics :rmse)))
+            (format t "Epoch ~3D train RMSE ~,6F validation RMSE ~A~%"
                     epoch (getf train-metrics :rmse)
-                    (getf validation-metrics :rmse)))))
+                    (if validation-rmse (format nil "~,6F" validation-rmse) "n/a (no validation split)")))))
       (values model
               (list :epochs epochs :learning-rate learning-rate
                     :optimizer :adam :objective :coordinate-mse

@@ -6,42 +6,10 @@
           :minimum-features 2 :maximum-features 11
           :beta 8.0d0 :feature-penalty 0.002d0
           :adjacency-strength 4.0d0 :resampling-threshold 0.25d0
-          :maximum-observations 200
+          :maximum-observations 90
           :neighbors 20 :minimum-distance 0.4d0 :epochs 35
           :standardize t :minimum-points 5 :epsilon :automatic
-          :umap-seed 20260831 :smc-seed 20260908
-          :no-validation-split t)
- ;; :NO-VALIDATION-SPLIT T (see smc-trainer/build-corpus.lisp) trains the
- ;; deployed Transformer on every one of the 200 rows, with no study held
- ;; out. Without it, PARAMETRIC-VALIDATION-GROUPS' plain alphabetical sort
- ;; always picks "van der Graaf et al. 2012 (PALETTE)" -- the STS-pazopanib/
- ;; STS-placebo study -- as the sole validation group, forever, purely
- ;; because its name starts with a lowercase "v" (ASCII lowercase sorts after
- ;; every uppercase-initial study name here). That is not a deliberate choice
- ;; to test generalization on that study; it is a naming coincidence that
- ;; permanently hid all 20 PALETTE windows from training. The predicted
- ;; placements this produced were badly wrong (validation RMSE ~5-8 vs.
- ;; ~0.1-1 for trained studies) and several windows landed within ~1 unit of
- ;; the Desmoid-Placebo cluster instead of near PALETTE's own cluster --
- ;; exactly the "STS conflated with Desmoid" symptom reported and diagnosed
- ;; in PAZOPANIB-PLACEBO-CLUSTER-MERGE.md's fourth addendum. This dataset is
- ;; small enough, and the deployed page's job (placing hypothetical profiles
- ;; against curves it has actually seen) important enough, that shipping a
- ;; model blind to one entire real study is worse than not holding one out.
- ;;
- ;; :MAXIMUM-OBSERVATIONS was 90 (the first 9 of the 20 evidence curves, at
- ;; the finest 0.125 window scale -- see data/pilot-landmarks.sexp for curve
- ;; order). That silently excluded 11 of Hardy et al. 2025's 12 SEER
- ;; population-trend curves from training: only STS-LOCAL-1999-2004 (the
- ;; very first Hardy curve in file order) was ever seen, so SURVIVAL-PROGRESS
- ;; (the feature meant to carry Hardy's "no progress in 25 years for STS/bone
- ;; sarcoma, but real progress for GIST" finding) had almost no real variance
- ;; to offer the search and was not selected. 200 admits all 20 curves at the
- ;; 0.125 window scale (20 curves x 10 windows = 200 rows), so every one of
- ;; Hardy's curves -- including the GIST-local/distant windows that carry the
- ;; real +0.08/+0.115 improvement signal, not just the near-zero STS windows
- ;; -- now reaches training.
- ;;
+          :umap-seed 20260831 :smc-seed 20260903)
  ;; EVENT-CODE and SURVIVAL-NOT-REPORTED are listed first and marked
  ;; :required t so AWRS-SMC's proposal step never offers :exclude for
  ;; either (see awrs-smc/search-umap.lisp). EVENT-CODE is the primary-event
