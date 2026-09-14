@@ -2074,3 +2074,564 @@ for it. If that memory entry is ever missing, out of date, or wrong,
 fix it the same turn you notice -- it's cheap to maintain and it's the
 one thing standing between "picks this up in five minutes" and "starts
 from zero."
+
+## `edinburgh-reader.lisp`: a classic-textual-Prolog front end (2026-09-14)
+
+### Why this exists
+
+Every clause and query in this project so far has been written in the
+bracket syntax `(<- (head ...) (goal1) (goal2))` / `(?- (goal))` --
+plain Lisp lists standing in for Prolog terms, which the engine has
+always consumed directly. Eduardo asked for an Edinburgh-style textual
+front end (`head(Args) :- goal1, goal2.`) on top of the *same* engine,
+with one explicit constraint from the start: `LISP-EVAL` (and
+`EVAL-PROLOG-FORM` underneath it) stays exactly as it is. This file is
+purely a new front door -- it tokenizes and parses ordinary Prolog
+source text and turns it into the identical raw term shapes the
+bracket syntax already produces (plain Lisp lists, `?`-prefixed
+symbols for named variables, the bare symbol `_` for anonymous), then
+calls `ADD-CLAUSE` / `RUN-QUERY` directly. Nothing in `prolog-engine.lisp`
+changed to support this file itself (one separate, small, unrelated fix
+did land there -- see its own subsection below).
+
+### The one design decision that makes everything else simple: no
+### operator-precedence table, anywhere, at all
+
+Classic Prolog needs a real operator-precedence parser (`xfx`/`xfy`/
+`yfx` priorities, user-extendable via `op/3`) for exactly one reason:
+arithmetic needs `2+3*4` to parse as `+(2,*(3,4))`, not `*(+(2,3),4)`.
+Take that reason away and nothing else in Prolog's grammar ever needed
+multi-level precedence to begin with -- `:-` (the rule neck), `,` (body
+goal separator), and `!` (cut) are each a single, fixed-position rule a
+plain recursive-descent reader already handles with no operator
+machinery behind it at all.
+
+This project already has a working arithmetic evaluator (`LISP-EVAL`),
+so Eduardo's own framing was: leave arithmetic AND the comparators
+(`= /= < > <= >=`, ISO-spelled `=:= =\= =< < > >=`) to Lisp entirely,
+and never give them infix syntax in this reader. Concretely, arithmetic
+and comparisons are written either as an ordinary compound term
+(`is(Y, +(X,1))`, `>(N, 0)`) or as a literal embedded Lisp expression
+(`is(Y, (+ X 1))`, `>(N, 0)`) -- both forms need no precedence at all
+(comma-delimited argument lists, and parenthesized prefix notation, are
+each unambiguous by construction). So `READ-TERM` has no "check for a
+following infix operator" loop anywhere -- it dispatches once on the
+current token and returns.
+
+One direct, checked consequence: `IS` and every comparator lose their
+familiar infix look too, consistently, not just arithmetic's `+ - * /`
+-- `Y is X + 1` is written `is(Y, (+ X 1))`, `X < 5` is `<(X, 5)`. This
+was a real gap caught only by writing tests infix out of habit and
+watching the reader correctly reject them (the reader was right; the
+first draft of the test file was wrong).
+
+### The two parenthesis forms, disambiguated for free
+
+`foo(X, Y)` is a compound term -- ISO's own lexical rule already
+requires the `(` to sit tight against the functor with no layout text
+between them (`foo (X)` is not a compound term in real Prolog either),
+so this needs no new rule. A bare `(` in term-starting position, not
+immediately following an atom, used to mean "grouping parens for
+operator precedence"; with no infix operators left to disambiguate,
+that shape has no grammatical job left, so it's repurposed as "this is
+Lisp" -- see the next subsection for what that means concretely.
+Negative numbers need no special disambiguation rule either, as a
+*consequence* of the no-operators design rather than a separate
+decision: `-5` (tight) has exactly one possible parse, and `- 5`
+(spaced) is simply two complete terms in a row with nothing valid
+connecting them, caught by the same "only `, ) ] | .` may follow a
+complete term" check that catches any other malformed trailing input.
+
+### `(...)` falls all the way back to Lisp -- including tokenizing
+
+The first working draft of the bare-paren escape re-tokenized its own
+contents with this file's own Prolog-only character classes (alphanumeric
++ underscore for identifiers). That broke immediately on real use:
+`(lisp-eval t (format t "..."))`, referencing this codebase's own
+hyphenated names (`lisp-eval` chief among them -- nearly every
+predicate/function name in this project is hyphenated), tokenized as
+THREE tokens (`LISP`, `-`, `EVAL`) instead of one, because hyphen isn't
+in that identifier table.
+
+Eduardo's fix, once the bug was diagnosed: "you just need to fall back
+to Lisp when you enter a Lisp expression" -- rather than growing a
+second, hyphen-aware identifier table for this one context, hand the
+raw text straight to `CL:READ` (with `READTABLE-CASE` set to
+`:preserve`, so an upper-case-led symbol can still be told apart from a
+lower-case-led one afterward) and translate the symbols it hands back
+using the exact same two rules `READ-TERM` uses everywhere else --
+upper-case/`_`-led becomes a `?`-prefixed variable, everything else
+becomes an upcased atom. `NIL` (from CL's own reading of `()`) maps
+straight onto this engine's own empty-list representation for free.
+Concretely: `READ-LISP-FORM-TAIL` splices a synthetic leading `(` back
+onto the not-yet-consumed remainder of the source (the caller has
+already consumed the real one), calls `READ` on that, advances the
+tokenizer's own position tracking to wherever CL's reader stopped, and
+walks the result translating symbol leaves.
+
+This is a strict simplification, not a narrowing of what's expressible
+-- every existing use of this escape (arithmetic, comparisons,
+`LISP-EVAL` calls) is exactly the well-behaved symbols/numbers/strings/
+nested-lists `CL:READ` already handles correctly, hyphens included, and
+it's the same "leave to Lisp everything Lisp does well" principle this
+whole design already rests on, just applied one level deeper. Accepted
+consequence, documented rather than silently different: Lisp's own
+lexical rules apply inside these forms, not this reader's own -- no
+`%`-comments inside a bare-paren escape, and a backslash inside a
+string there means whatever CL's string reader says it means, not this
+file's own `\n`/`\t` escapes (which still apply to ordinary Prolog
+`"..."` strings outside a Lisp escape).
+
+### Surface symbols rewritten at goal position only
+
+Plain `=` means unification in every Prolog dialect, but this engine's
+own `BUILTIN-STEP` already has a case named `=` that is Lisp numeric
+equality (a pre-existing, harmless-until-now naming collision -- nothing
+before this file ever wrote `=` as a bare goal). So `READ-GOAL` rewrites
+a goal-position `=(A,B)` to `unify(A,B)` -- the engine's real
+unification builtin -- leaving `prolog-engine.lisp`'s existing `=` case
+untouched; `=:=` maps onto that unchanged internal `=` instead. Full
+table: `=` -> `UNIFY`, `=:=` -> internal `=`, `=\=` -> internal `/=`,
+`=<` -> internal `<=`; `<`, `>`, `>=` need no translation (same spelling
+both places). This rewrite applies ONLY at goal position (clause-body
+items, directive items) -- never to a nested/data occurrence of the
+same functor. NOT implemented, matching `\+/1`'s own gap: `\=` (not
+unifiable), `==`/`\==` (structural equality) -- these read as ordinary
+compound-term goals and simply FAIL at runtime (no clauses exist for
+them), which is honest, not silently wrong, just incomplete.
+
+### Error detection
+
+Every malformed-input case is a clear, position-tagged
+`EDINBURGH-SYNTAX-ERROR` (`<source>:<line>:<col>: <message>`) -- never a
+crash, never a silent wrong parse. `CONSULT-EDINBURGH-STRING`/`-FILE`
+catch their own syntax errors clause-by-clause and resync to the next
+top-level `.` (classic "consult" behavior: one bad clause is reported,
+the rest of the file still loads), returning `(values installed-count
+error-messages)` rather than signalling -- so a caller checking "did
+this load cleanly" looks at the second return value, not a
+`HANDLER-CASE`.
+
+One real resync bug found and fixed while testing this: several of the
+"unexpected token" error branches (`READ-TERM` expecting a term,
+`READ-ARGLIST` expecting `,`/`)`, `READ-LIST-TAIL` expecting `,`/`|`/`]`)
+had already CONSUMED the offending token via `PS-NEXT-TOKEN` before
+raising the error -- and when that offending token happened to be the
+clause-terminating `.` itself (e.g. a rule body with a stray `.` where a
+goal was expected), the terminator was gone by the time
+`RESYNC-TO-NEXT-CLAUSE` started looking for the next `.`, so resync ran
+straight through the following GOOD clause hunting for a terminator
+that had already gone by, silently dropping it. Fixed by
+`PS-UNREAD-IF-DOT`: if the token that triggered the error is a `.`, put
+it back into the one-token lookahead buffer before signalling, so resync
+finds it immediately and consumes nothing extra. Verified with a
+three-clause `good1. / bad1 :- . / good2.` case: before the fix, 1
+clause installed and `good2` silently lost; after, 2 installed, 1 error
+reported, and both good clauses queryable afterward.
+
+### The one change that landed in `prolog-engine.lisp` itself
+
+The six comparison builtins in `BUILTIN-STEP` (`= /= < > <= >=`) used
+`(mapcar #'ground (cdr goal))` -- `GROUND` fully dereferences a term but
+never evaluates it, so a bare goal like `<(N, (+ 1 3))` crashed with a
+raw Lisp type error (`(+ 1 3)` dereferenced to a list, not a number,
+and `<` doesn't know what to do with a list). Changed to `(mapcar
+#'eval-prolog-form (cdr goal))` -- `EVAL-PROLOG-FORM` is a strict
+superset of `GROUND` for already-grounded plain atoms (identical
+behavior, verified against the pre-existing `(lisp-eval t (= ?n 1))`
+style usage inside real moded predicates), and additionally evaluates
+compound arithmetic operands correctly instead of crashing. Confirmed
+via `grep` across every `.lisp` file in the project that nothing
+existing calls these six builtins as bare goals outside `LISP-EVAL`
+wrapping, so this is zero-regression, purely additive.
+
+### Verification
+
+`edinburgh-reader-tests.lisp` covers: atoms/variables/numbers/strings;
+both parenthesis forms including nested Lisp expressions; lists
+(`[]`, `[a,b,c]`, `[H|T]`); comments (`%` and `/* */`) invisible to the
+reader; negative-number resolution needing no special rule (`3 - 1`
+correctly rejected as two terms in a row); facts/rules/directives
+installed via `CONSULT-EDINBURGH-STRING` cross-checked against the SAME
+database queried/asserted from the bracket syntax; cut and recursion
+(`countdown/1`); the `=` -> `UNIFY` semantic fix; the full comparator
+spelling table (`=:= =\= =< < > >=`); a directive executed immediately
+at consult time (using `REGISTER-CALLABLE` -- the engine's own
+documented extension point -- since `FORMAT` isn't on `LISP-EVAL`'s
+default whitelist, a real, deliberate, unrelated engine restriction);
+`\=` failing cleanly rather than crashing; ten distinct malformed-input
+cases, each producing a clean position-tagged error; a missing-
+terminator-at-EOF case verified through `CONSULT-EDINBURGH-STRING`'s
+own `(values installed errors)` return rather than a thrown condition
+(matching its actual by-design behavior); and the three-clause
+multi-error resync case above. Every case passes.
+
+### Known limitations, stated plainly rather than discovered later
+
+- No term writer/pretty-printer -- this file is a reader only. Query
+  results still print through the engine's own existing output path.
+- `;` (disjunction) and `->` (if-then) are not implemented as control
+  constructs -- `;` tokenizes as an ordinary atom (matching how cut and
+  the neck are each handled as their own fixed token, not part of an
+  operator grammar) but nothing gives it disjunction semantics yet.
+- No DCGs, no `op/3` (deliberately -- see above), no full ISO escape
+  grammar in quoted atoms/strings (common escapes only: `\\ \n \t \' \"`).
+- `\=`, `==`, `\==` read fine but have no clauses backing them, so they
+  simply fail -- same documented gap as `\+/1`.
+- Inside a bare-paren Lisp escape, Lisp's own lexical rules apply, not
+  this reader's: no `%` comments there, and Lisp's own (not this file's)
+  string-escape rules inside a Lisp-escape string literal.
+
+### Addendum: hyphens in ORDINARY atom names too, plus `CONSULT` and real
+### example files (2026-09-14, later the same day)
+
+The CL:READ fallback above fixes hyphenated names only where they're
+referenced *inside* a bare-paren Lisp escape (`(lisp-eval t (format ...))`).
+It does nothing for a hyphenated name written as an ordinary Prolog
+*atom* -- `list-len(Xs, N)`, `count-up3(N, Stop, Out)` -- which is a
+different code path (`READ-TERM`'s plain `:atom` case, fed by
+`PS-SCAN-IDENT`) that never touches `CL:READ` at all. That path still
+used the original, alphanumeric-plus-underscore-only `IDENT-CHAR-P`, so
+`list-len(a, b)` split into the atom `LIST` and unparseable leftover
+`-len(a, b)` the moment there was a real program to try it on (porting
+the project's own numbered example files below, which are hyphenated
+throughout, surfaced this immediately).
+
+Fixed the same way in spirit: `ATOM-IDENT-CHAR-P` is `IDENT-CHAR-P` plus
+`-`, used only by the atom-scanning call site in `PS-SCAN-TOKEN`
+(`PS-SCAN-IDENT` now takes an optional char-predicate, defaulting to the
+old `IDENT-CHAR-P`). `PS-SCAN-VARIABLE` deliberately keeps calling
+`PS-SCAN-IDENT` with no override, so `X-1` still reads as the variable
+`X` followed by the numeral `-1` (two terms in a row -- a syntax error,
+same as `3 - 1`), never one variable named `X-1`. No new ambiguity: the
+negative-number check in `PS-SCAN-TOKEN` only ever fires at the very
+start of a fresh token, before any ident-scanning loop runs, so it's
+untouched by what characters can *continue* an already-started atom.
+
+Added `CONSULT` (in `edinburgh-reader.lisp`, right after
+`CONSULT-EDINBURGH-FILE`) as the actual front door Eduardo asked for --
+`(consult "family.pl")` loads a real `.pl` file and leaves its database
+ready to query via `?-`/`?-all`/`EDINBURGH-QUERY`, printing a one-line
+`% <file> consulted: N clauses installed` (or `, N errors -- see above`)
+summary and returning `T`/`NIL`, matching any classic Prolog top level's
+own `consult/1` well enough to use the same name.
+
+And ported six of the project's own existing example files from bracket
+syntax into real, consultable Edinburgh `.pl` files -- not just inline
+test strings -- as the concrete case for both fixes above:
+`1prolog-test.pl`/`2prolog-test.pl` (`count-up`/`count-up3`, floating
+countdown-by-cut idiom), `3app-test.pl` (non-deterministic `app/3`),
+`4length-test.pl` (`list-len/2`), `5sum.pl` (a second, 4-ary `count-up`
+threading two accumulators), and `99-p01-p10.pl` (P-99 problems 1-10 --
+ten hyphenated predicates, cons-pattern list matching throughout,
+exactly the kind of program this reader needs to handle to be useful at
+all). Every predicate name in that last file is hyphenated; every
+result cross-checked in `examples-tests.lisp` against the same
+expectations documented in each file's original bracket-syntax source.
+`arithmetic-only` results (the `count-up` family) are eyeballed rather
+than asserted exactly -- summing 0.01 a few thousand times has no
+reason to land on a round printable float -- everything else (P-99's
+integer/symbol/list results) is checked for exact equality and matches.
+
+### `det-mode.pl` + `det-mode-demo.lisp`: mode-compiling Edinburgh-consulted
+### clauses (2026-09-14, later still)
+
+Eduardo asked whether `mode-compile` works with Edinburgh Prolog.
+Answer, checked concretely rather than assumed: the compiler itself
+does -- `(mode (pred m1 ... mn))` just reads whatever clauses are
+already in `*database*` and compiles them, regardless of how they got
+there. What doesn't, and structurally can't, is `det-mode.lisp`'s own
+Fortran-style *inline* `+`/`-` annotation on the clause head (as in its
+`APPEND` clause, `(+x . +xs)`/`(-x . -z)`) -- that's detected by a
+redefined `<-` *macro* inspecting the literal head form at
+macroexpansion time, and `CONSULT` calls `ADD-CLAUSE` directly, at
+runtime, on already-parsed data, never through `<-` at all. Separately,
+there's no Edinburgh surface syntax for it either way: a bare `+` or
+`-` immediately before an atom is an ordinary symbolic-atom token in
+this grammar, not a mode marker.
+
+None of that turns out to matter for actually getting a mode-compiled
+predicate out of Edinburgh source, though, once you look at what
+`COMPILE-DET-PREDICATE`/`COMPILE-DET-CLAUSE` actually consume: by the
+time a `<-`-asserted, inline-annotated clause reaches the database,
+`STRIP-MODED-HEAD` has already rewritten every `+x`/`-x` symbol down to
+a plain `?x` pvar -- the stored clause is indistinguishable from one
+that was never annotated at all. The compiler reconstructs each
+argument's cons/flat structure from the plain stored pattern plus the
+direction `MODE` was given, not from any annotation surviving on the
+clause itself. So a plain, unannotated Edinburgh clause and a
+`<-`-with-inline-annotations clause compile to the identical Lisp
+function once `MODE` is declared -- the annotation was only ever a
+convenience for inferring the mode automatically; declared explicitly,
+it's not needed at all.
+
+`det-mode.pl` is the Edinburgh port of `det-mode.lisp`'s five
+predicates (`count-up/3`, `parity/2`, `minmax/4`, `firstof/2`,
+`append/3`), written as plain clauses -- `append/3`'s head is just
+`append([X|Xs], Y, [X|Z]) :- append(Xs, Y, Z).`, no annotation of any
+kind, since Edinburgh has nothing to put there. `det-mode-demo.lisp`
+consults it, then declares all five `MODE`s explicitly from the Lisp
+side (the only path available for Edinburgh-sourced clauses), and
+exercises each result all three of `det-mode.lisp`'s own documented
+ways -- the direct compiled function, an ordinary `?-` query, and
+`?-all` backtracking through `minmax`'s two clauses -- cross-checked
+against `det-mode.lisp`'s own original bracket-syntax numbers and
+matching exactly, `parity`'s known limitation included (it only ever
+handles the two literal inputs 0 and 1 -- a toy predicate in the
+original, not a real is-N-odd check; confirmed by running the original
+`det-mode.lisp` side by side rather than assumed).
+
+One translation note along the way, not a limitation: `count-up/3`'s
+guard was originally `(lisp-eval t (>= ?n ?stop))`; the Edinburgh
+version writes the equivalent bare `>=(N, Stop)` directly, relying on
+the SAME `EVAL-PROLOG-FORM`-for-comparisons engine fix this whole
+Edinburgh-reader effort already made -- and `COMPILE-DET-CLAUSE`
+already recognizes a bare direct comparison builtin as its own
+supported body-goal shape (separately from `LISP-EVAL`/`IS`), so this
+isn't even a workaround, just the more idiomatic spelling now available
+on both fronts.
+
+### `edinburgh-read-macro.lisp`: embedding Edinburgh queries in Lisp source
+### itself, via a `?` read macro (2026-09-14, later still)
+
+Eduardo asked for a better calling syntax than typing
+`(edinburgh-query "app(Left, Right, [3,4.5])")` as a Lisp string --
+concretely, to be able to write
+
+```
+?-app(Left, Right, [3,4.5]);
+```
+
+directly as Lisp source (top level, in a loaded file, or at the REPL)
+and have it just run. That means intercepting the Lisp READER itself,
+not adding another parser-level feature -- `edinburgh-read-macro.lisp`
+does this by making `?` a (non-terminating) Lisp macro character.
+
+The one thing that made this safe to build at all: this codebase's `?`
+is already heavily overloaded before this file exists at all -- every
+named pvar (`?x`, `?_foo`), and the existing bracket-syntax `(?- (goal))`
+/ `(?-all (goal))` query macros, all start with `?`. Redefining `?`
+carelessly would have broken essentially everything else in the
+project. The fix is a disambiguation rule that reduces to one already
+established by `edinburgh-reader.lisp` itself: TIGHT vs LOOSE against a
+following `(`, exactly the same test that already tells a compound term
+(`foo(X,Y)`, tight) from a bare-paren Lisp escape (`(+ X 1)`, loose).
+Concretely: `?` not followed by `-` is unchanged (ordinary `?x`
+reading); `?-` followed (optional whitespace) by a lowercase-letter-led
+identifier that sits TIGHT against `(` is the new embedded-query form;
+`?-` in every other shape -- followed by a space then `(` (`(?- (goal))`
+and `(?-all (goal))`, always written this way in every existing file),
+or with no tight-paren-following identifier at all -- falls straight
+through to plain symbol reading, byte-for-byte what it always produced.
+Nothing in ordinary Lisp style writes a C-like tight `symbol(args)` call
+in the first place, so the two syntaxes structurally cannot collide.
+`READ-PLAIN-SYMBOL-TAIL` is what makes the fallback exact: rather than
+trying to `UNREAD-CHAR` several characters back (not reliably
+supported -- CL only guarantees ONE character of pushback), it just
+carries forward whatever's already been peeked/consumed as a known
+prefix and keeps reading ordinary token characters from there.
+
+The terminator is `;`, exactly as asked, without touching `;`'s own
+readtable entry at all -- `READ-EDINBURGH-RAW-UNTIL-SEMICOLON` does its
+own raw character scan (tracking `()`/`[]` depth and skipping over
+`'...'`/`"..."` quoted regions, respecting a backslash escape inside
+them) looking for a literal `;` at depth 0, and simply never asks the
+reader to interpret that character as anything. So an ordinary Lisp
+line comment starting right after a captured query's `;` works exactly
+as it always would (`?-app(X,Y,Z); ; a normal comment`) -- accommodating
+`;` meant not needing to redefine what it means anywhere, rather than
+finding a workaround for a conflict. `.` was considered as the
+terminator and rejected: it's already meaningful to the Lisp reader
+(dotted-pair/float syntax) in a way that would misfire the moment a
+captured query contained a float literal or `[H|T]` list sugar.
+
+`ENABLE-EDINBURGH-SYNTAX` sets `*READTABLE*` globally for the rest of a
+session/script (safe, given the disambiguation above); a scoped
+`(let ((*readtable* *edinburgh-lisp-readtable*)) ...)` works too, for
+anyone who'd rather not touch the global reader state at all.
+`DISABLE-EDINBURGH-SYNTAX` restores the plain standard readtable.
+
+Verified in `edinburgh-read-macro-tests.lisp`: the exact example from
+the request; a multi-goal comma-separated embedded query; a comment
+immediately after the terminating `;`; a malformed capture (no closing
+`;`) raising a clear Lisp-level error rather than hanging or misreading
+silently; and, most importantly, the regression check -- with the new
+readtable enabled, a bare `?foo` pvar, the anonymous `_`, an ordinary
+`(?- (goal))` query, and `(?-all (goal))` backtracking all read and run
+exactly as they did before this file ever existed. The full existing
+`edinburgh-reader-tests.lisp` and `examples-tests.lisp` suites (which
+don't even load this file) were re-run clean alongside it, confirming
+nothing leaked.
+
+### `is` gains an infix spelling, `X is Expr` (2026-09-14, later still)
+
+Eduardo asked whether `is` could be made infix, given that in every real
+use in this codebase its left side is a single variable and its right
+side a Lisp expression -- would that regularity make it safe to add
+without causing trouble elsewhere in the grammar?
+
+Yes, and for a sharper reason than "it happens to work": under the OLD
+grammar, `Left is ...` was already a GUARANTEED syntax error. Once
+READ-TERM finishes reading `Left` as a complete term at goal position,
+the only legal continuations were `,` (another goal) or `.` (end of
+clause) -- a bare atom like `is` sitting right after a complete term,
+with nothing legally connecting them, is exactly the "two complete terms
+in a row" case the file banner already describes for `- 5` (space, no
+parens). So claiming that previously-illegal continuation for new syntax
+collides with nothing that used to parse successfully -- the same
+argument already used for recognizing `:-` only at the top of a clause
+(NECK-TOKEN-P) and for the `=`/`=:=`/`=\=`/`=<` goal-position rewrites.
+
+The disambiguation needed is the exact same tight-vs-loose-paren test
+used everywhere else in this file: `is(X, Y)` (tight, no space) is
+untouched -- still the ordinary compound-term parse, atom `is` with
+TOK-TIGHT-OPEN-P true, going through READ-TERM's existing `:atom`
+case exactly as before. `X is Y` (is written loose -- NOT immediately
+followed by `(`) is the new form: READ-GOAL reads a first term, then
+INFIX-IS-FOLLOWS-P peeks for the atom `is` with TIGHT-OPEN-P *false*,
+and if so consumes it and reads a second term, producing `(IS Left
+Right)` -- the identical shape `is(Left, Right)` already produced the
+old way. BUILTIN-STEP needed zero changes: this is purely a second
+reader-level spelling for a goal that already existed, exactly like `=`
+having both a prefix compound-term form and (once rewritten) its real
+UNIFY dispatch.
+
+LEFT is read as an ordinary term, not syntactically restricted to a bare
+variable -- there's no ambiguity either way, so nothing forces the
+narrower choice, and a non-variable LEFT still behaves exactly as ISO
+Prolog's own `is/2` does (ordinary UNIFY* against whatever EVAL-PROLOG-
+FORM computes, which simply fails to unify for a non-matching LEFT,
+rather than erroring). RIGHT is read via the same ordinary READ-TERM
+every other context uses, so both a bare-paren Lisp escape (`X is
+(getenv-or "SAR_EPOCHS" "200")`, sarcoma-setup.pl's exact shape) and a
+plain literal (`X is 7`) already just work with no extra grammar.
+
+One deliberate scope limit, matching the existing goal-only rewrites
+exactly: the infix hook lives in READ-GOAL only, not in READ-TERM
+itself, so `is` written infix INSIDE another term's argument list or a
+list literal (e.g. `foo(X is 5)`) is not recognized -- `is` there stays
+a plain atom, same pre-existing limitation `=`/`<`/etc. already have at
+non-goal positions, not a new gap this change introduces.
+
+Verified in `infix-is-tests.lisp`: both spellings parse to the identical
+`(IS ?X ...)` term; the infix form actually runs, both with a bare-paren
+Lisp escape and a plain number on the right; a full clause body written
+with infix `is` (a count-up/3 variant) runs identically to the existing
+prefix-spelled one in `det-mode.pl`; a REGISTER-CALLABLE-backed function
+call on the right works (mirroring sarcoma-setup.pl's `env-value(epochs,
+V)` shape exactly); `is(X, Y)` tight-paren is confirmed completely
+unaffected; and the one edge case, `X is(A,B)` (tight paren right after
+`is`, so NOT recognized as infix), produces a clear syntax error rather
+than a silent misparse, as expected. The full existing
+`edinburgh-reader-tests.lisp`, `examples-tests.lisp`, `det-mode-demo.lisp`,
+and `edinburgh-read-macro-tests.lisp` suites were all re-run clean
+alongside this change, and the sarcoma pipeline smoke harness (stub
+scripts standing in for the five real stages) still produces byte-
+identical output with the updated reader loaded, confirming nothing
+already deployed regressed.
+
+### Generalizing infix to all seven comparators, and the real "and/or"
+### question underneath Eduardo's follow-up (2026-09-14, later still)
+
+Eduardo asked about `>`, `>=`, `=<`, `=`, etc. next -- guessing they might
+be "more complex" than `is` because they can "potentially be combined
+with and/or". Two separate things turned out to be true here, and it
+mattered to keep them apart.
+
+First: making all seven ISO-familiar comparators (`=`, `=:=`, `=\=`,
+`=<`, `<`, `>`, `>=`) infix, alongside `is`, is EXACTLY as safe as `is`
+was, for the identical reason -- generalized rather than re-derived per
+operator. `*INFIX-GOAL-ATOMS*` replaces the `is`-only `*IS-ATOM*` check
+with a small table of all eight surface atoms; `READ-GOAL` reads a left
+term, checks whether the next (loose -- not tight-paren) token is a
+member of that table, and if so consumes it, reads a right term, and
+hands `(list OP Left Right)` to the ALREADY-EXISTING `REWRITE-GOAL` --
+the exact same translation step the prefix/compound-term spelling of
+`=`/`=:=`/`=\=`/`=<` already went through, and a no-op for `is`/`<`/`>`/
+`>=`, which needed no rewriting either way. So one mechanism, one table,
+zero new BUILTIN-STEP or REWRITE-GOAL code, for all eight. The
+non-ambiguity argument generalizes identically too: under the OLD
+grammar, `Left >= ...` (or any of these, loose) was ALREADY a guaranteed
+syntax error at goal position -- the same "complete term followed by a
+bare atom, nothing legally connecting them" case `- 5` and `:-`'s own
+NECK-TOKEN-P already rely on. Adding infix syntax for any number of
+these operators simultaneously claims exactly that previously-illegal
+continuation and nothing else; it doesn't compound in difficulty as more
+operators are added, because each one is independently claiming ground
+that was independently always empty. Verified in
+`infix-comparison-tests.lisp`: all seven infix spellings parse to the
+identical term their prefix/compound-term spelling already produces; a
+body mixing several infix comparators AND infix `is` runs correctly (a
+`count-up4/3` variant of `det-mode.pl`'s own example); tight-paren stays
+completely unaffected; and the one deliberate non-feature, chained
+comparison (`X < Y < Z`), errors cleanly rather than silently
+misparsing, for the same reason there's no ISO Prolog meaning for it to
+begin with.
+
+Second, and this is the real substance behind "combined with and/or":
+Eduardo's instinct was pointing at something genuine, just not at the
+level he guessed. Combining comparisons at the goal-BODY level (`X < Y,
+Y < Z` as two separate, comma-separated goals) has NO ambiguity at all,
+infix or prefix, and needed nothing new -- comma in a clause body is a
+pure flat separator here (see the file banner), never a nested ','/2
+term, so comparisons are simply items in that flat list, exactly like
+any other goal. The REAL complexity is combining comparisons (or any
+goals) into a single TERM -- e.g. as the Goal argument to FINDALL/
+BAGOF/SETOF/CALL, which per those builtins' own documented limitation
+(prolog-engine.lisp) must be ONE goal term, not a `(G1, G2, ...)`
+conjunction, because there is no ','/2 (or ';'/2 disjunction) term
+operator in this engine at all. That gap is completely orthogonal to
+whether the comparisons inside are spelled infix or prefix -- it exists
+identically either way, and this change neither introduces nor fixes
+it. Building real ','/2 and ';'/2 TERM operators (as opposed to `,`'s
+current pure-separator role) would be a materially bigger change than
+anything in this file's design so far -- it's the one thing this
+grammar's whole "no operator-precedence table" simplification (see the
+file banner's opening argument) was built to avoid needing -- and would
+need to be a deliberate, separate decision, not a side effect of making
+comparators infix. Not attempted here; `infix-comparison-tests.lisp`'s
+last section demonstrates the gap concretely (a working single-goal
+FINDALL alongside the AND-combined form that would need it) rather than
+just asserting it.
+
+### A real gap found while writing claude-prolog-tutorial.md: the `?-...;`
+### read macro doesn't recognize infix-led queries (2026-09-14, later still)
+
+Eduardo asked for a practical tutorial covering things like
+`(enable-edinburgh-syntax)`. Writing one meant actually running every
+example rather than just describing it -- and one of them broke:
+`?-3 < 5, 4 < 5;` and `?-X is 5;`, typed under the read macro, do NOT
+run as queries at all. `(read-from-string "?-X is 5")` returns the
+truncated symbol `?-X`, with ` is 5` left dangling as separate,
+malformed input.
+
+The cause: `EDINBURGH-QUERY-READER` only recognizes a query when, right
+after `?-` (and optional whitespace), the very next character starts a
+LOWERCASE-led identifier that then sits tight against `(` --
+`EDINBURGH-IDENT-START-P`'s check. That's exactly the shape every
+compound-term goal has (`app(`, `count-up(`, `p04-count(`), so every
+example this reader was built and tested against -- including the
+user's own original request, `?-app(Left, Right, [3,4.5]);` -- happens
+to fit it. But it's ALSO exactly the shape infix syntax's left-hand
+side never has: `X is 5` starts with a variable (uppercase), `3 < 5`
+starts with a digit. Since infix `is`/comparators didn't exist yet
+when `edinburgh-read-macro.lisp` was built, `edinburgh-read-macro-
+tests.lisp` never had a reason to try a query shaped that way, so
+nothing caught this until the tutorial's own examples were run for
+real rather than just written down.
+
+This is a real, currently-unfixed scope gap in the read macro (not in
+`EDINBURGH-QUERY`/`READ-GOAL` themselves, which handle infix-led goals
+fine -- confirmed: `(edinburgh-query "3 < 5, 4 < 5")` runs correctly).
+It's specific to the Lisp-reader-level `?-...;` convenience layer only.
+Not fixed here, on purpose -- extending the trigger condition safely
+(so it also catches a bare variable or number, without ALSO catching
+something that should stay an ordinary `?x`-family symbol or the
+existing `(?- (goal))`/`(?-all (goal))` bracket forms) needs the same
+careful no-ambiguity analysis every other change in this file got, and
+deserves its own pass rather than a rushed fix under tutorial-writing
+pressure. Documented as a known limitation in
+`claude-prolog-tutorial.md` (section 5's callout and the troubleshooting
+table), with the safe workaround: lead an embedded query with a
+compound-term goal, or use `EDINBURGH-QUERY` as a string when the first
+goal is naturally variable- or number-led.

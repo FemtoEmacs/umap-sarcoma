@@ -673,7 +673,23 @@ all register SQRT."
     (is
      (values rest choices (unify* (second goal) (eval-prolog-form (third goal)))))
     ((= /= < > <= >=)
-     (values rest choices (apply (symbol-function (car goal)) (mapcar #'ground (cdr goal)))))
+     ;; Fixed 2026-09-14, motivated by the Edinburgh reader: was (MAPCAR
+     ;; #'GROUND ...), which only fully dereferences pvars but never
+     ;; evaluates -- fine as long as every argument ever handed to these
+     ;; six was already a plain grounded number (the only way anyone
+     ;; could use them before: via LISP-EVAL, e.g. (lisp-eval t (= ?n
+     ;; 1)), which evaluates its OWN argument before ever reaching this
+     ;; case). Once source can write a comparison directly as a goal
+     ;; (X < Y + 1), its operands can be compound terms like (+ ?y 1)
+     ;; that need evaluating, not just dereferencing -- GROUND would hand
+     ;; Lisp's < a literal list and crash with a raw Lisp type error
+     ;; instead of computing anything. EVAL-PROLOG-FORM is a strict
+     ;; superset of GROUND's behavior here: for an already-grounded ATOM
+     ;; (a plain number -- everything every existing caller ever passed),
+     ;; the two are identical (see EVAL-PROLOG-FORM's (ATOM FORM) case),
+     ;; so nothing that worked before changes; only the previously-
+     ;; crashing compound-argument case is now handled at all.
+     (values rest choices (apply (symbol-function (car goal)) (mapcar #'eval-prolog-form (cdr goal)))))
     (findall
      (values rest choices (unify* (fourth goal) (findall-collect (second goal) (third goal)))))
     (bagof
