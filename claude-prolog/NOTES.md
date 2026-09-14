@@ -1835,16 +1835,115 @@ and library predicates like `member/2`/`append/3`/`length/2`/
 ordinary user-defined Prolog clauses via `<-` once the engine is
 solid, rather than needing to be built-ins).
 
-### Status update: the roadmap above is partly done
+### Status update: `findall`/`bagof`/`setof`/`call` are implemented (2026-09-14)
 
-`findall/3`, `bagof/3`, `setof/3`, and `call/N` (the first four items
-above) were implemented and deployed after this roadmap section was
-written, along with a real fix to `eval-prolog-form` (it was mishandling
-a dereferenced variable bound to a list). This paragraph exists so this
-file doesn't actively mislead a future reader into re-doing work that's
-already there -- see `prolog-engine.lisp` itself for the current state
-of those predicates rather than trusting the roadmap prose above, which
-was left as originally written for its reasoning, not its status.
+The roadmap above describes the DESIGN thinking that led to these four
+builtins; it was never updated to say they'd actually been built, which
+is exactly the kind of gap that leaves a future session re-proposing
+work that's already done (as happened once already this same day: a
+"let's start implementing findall/bagof/setof/call" request arrived in
+a later conversation than the one that built them, with no memory of
+having done so -- caught only by grepping `prolog-engine.lisp` and
+checksumming it against the deployed copy before writing any code).
+This section is the actual status writeup that should have existed
+from the start.
+
+**What's implemented**, all as ordinary `BUILTIN-STEP` dispatch cases
+(`prolog-engine.lisp`, search for `findall bagof setof call` in
+`builtin-p`) -- none of this touches `mode-compiler.lisp`; a moded
+clause body still can't call any of these, same as it can't call any
+other non-moded predicate:
+
+- `findall(Template, Goal, List)`: runs `Goal` to exhaustion via its
+  own private backtracking search (`findall-collect`), collecting a
+  grounded copy of `Template` per solution, undoing every binding
+  before returning. Never fails -- an exhausted/impossible `Goal` gives
+  `List = NIL`, exactly like ISO `findall`.
+- `bagof(Template, Goal, List)` / `setof(Template, Goal, List)`: **not**
+  full ISO semantics -- see "The grouping gap" below. As implemented,
+  both are `findall-collect` plus "fail instead of succeeding with
+  `NIL` when there are zero results" (the one place they differ from
+  `findall`); `setof` additionally sorts (`term-lessp`, a total order
+  good enough for this engine's own term vocabulary: numbers, then
+  strings, then symbols, then conses, then anything else) and removes
+  duplicates.
+- `call(Goal)` / `call(Goal, A1, ..., Ak)`: appends the extra arguments
+  onto `Goal`'s own argument list (`build-call-goal`) and splices the
+  resulting compound term directly into the remaining goals of the
+  CURRENT solve -- deliberately not an isolated sub-search the way
+  `findall` is, so its choice points backtrack exactly like a goal
+  written directly in the source would, and cut-transparency falls out
+  for free: a `!` inside the called predicate's own clause was already
+  compiled with a cut-depth relative to that clause's own entry, so it
+  commits only that predicate's choice, never one belonging to
+  whichever clause called `call/N`. This was flagged in the roadmap
+  above as "the single trickiest integration point" and worth a
+  dedicated test -- see Verification below; it turned out to need no
+  special-case code at all, just confirming the general mechanism
+  already had the right scoping.
+
+**The grouping gap** (a real, documented limitation, not an oversight
+being hidden): ISO `bagof`/`setof` partition solutions by the bindings
+of `Goal`'s free variables that don't appear in `Template`, and
+backtrack over each partition separately -- `bagof(Child,
+parent(Parent, Child), Kids)` with `Parent` unbound should give one
+`Kids` answer per distinct `Parent` on backtracking. This engine's
+`bagof`/`setof` do no such partitioning: they collect every solution
+into one list regardless of any unbound variable in `Goal`, and only
+ever produce a single answer -- i.e. exactly `findall`'s behavior. This
+was a deliberate scope decision when these were built, motivated by
+`pipeline.lisp`'s own use (`(setof (?i ?d ?s ?a) (substep ?n ?i ?d ?s
+?a) ?subs)`, where `?n` is always already bound by the caller before
+`setof` runs, so there's no free variable left to group by -- the
+simplified version is indistinguishable from real `bagof`/`setof` in
+that case). Every current caller in this codebase binds every variable
+in `Goal` except `Template`'s own before calling `bagof`/`setof`, so
+this has never been wrong in practice -- but it WOULD be wrong for a
+future caller that relies on real grouping, and there's no guard that
+detects or warns about that case; it just silently gives the
+`findall`-shaped answer instead. Fixing this for real is a nontrivial
+addition (partition `findall-collect`'s results by the free variables'
+bindings, most straightforwardly via `equal`-grouping the raw pre-
+`Template`-projection tuples before backtracking over each group) --
+not attempted here since nothing has needed it yet.
+
+**Also not implemented**: `Goal` for all three of `findall`/`bagof`/
+`setof` must be a single goal term, not a `(G1, G2, ...)` conjunction
+-- there's no `,`/2 in this engine (clause bodies are already a flat
+goal list at the source level, so conjunction never needed its own
+functor). Every use so far only ever needed one goal.
+
+### Verification
+
+`findall-bagof-setof-call-tests.lisp` (new file, this session) covers,
+against the actual deployed `prolog-engine.lisp`:
+- `findall/3`: a normal multi-result collection, and the
+  never-fails-on-zero-results case (`List = NIL`).
+- `bagof/3` in the mode it's actually used in (no free variables left
+  in `Goal` once the caller's own bindings are applied): correct
+  result, and correctly FAILS (not `List = NIL`) when `Goal` has zero
+  solutions.
+- `setof/3`: sorted, duplicate-free output from a fact base with a
+  literal duplicate fact.
+- The grouping gap itself, demonstrated rather than just asserted: a
+  `parent/2` family tree, `(?-all (bagof ?c (parent ?p ?c) ?l))` with
+  `?p` deliberately left unbound -- confirmed it produces exactly ONE
+  answer lumping every parent's children together
+  (`L = (BOB LIZ ANN PAT)`), not the two per-parent answers real ISO
+  `bagof` would give.
+- `call/2` with a bare predicate symbol as `Goal`, and `call/3` with a
+  partially-applied compound `Goal` (`(add 10)` plus one more arg).
+- Cut-transparency, both directions: `(?-all (call pick ?x))` where
+  `pick/1`'s own first clause cuts -- confirmed exactly one answer, not
+  two, so the callee's own cut still fires correctly through `call/N`;
+  and a `combo/2` predicate where `outer/1` (no cut) calls `inner/1`
+  (has a cut) via `call/N` -- confirmed exactly TWO answers
+  (`O=1,I=YES` then `O=2,I=YES`), proving `inner`'s cut did NOT reach
+  back and remove `outer`'s own second-clause choice point.
+
+All checks matched their expected output on the first run against the
+already-deployed engine -- nothing in this section required a code
+change, only a test file and this writeup.
 
 ## `pipeline.lisp`: a reusable external-pipeline library (2026-09-14)
 
