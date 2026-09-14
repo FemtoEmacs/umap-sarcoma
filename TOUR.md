@@ -1,5 +1,9 @@
 # Sarcoma UMAP testing tour
 
+To build the html, run:
+
+ sarcoma-setup-edinburgh.x
+
 This tour starts with the published sarcoma evidence UMAP and finishes with
 the `smc-trainer` Transformer insertion demonstration. Run every shell block
 from the `umap-sarcoma` root.
