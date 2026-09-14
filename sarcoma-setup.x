@@ -1,8 +1,9 @@
 #!/usr/bin/env -S sbcl --script
 ;;;; Complete sarcoma pipeline -- Prolog port of the original sarcoma-setup.x.
-;;;; Requires only SBCL (loads claude-prolog/prolog-engine.lisp, checked
-;;;; in alongside this file as plain files) and a browser to view the
-;;;; resulting HTML, same as the original.
+;;;; Requires only SBCL (loads claude-prolog/prolog-engine.lisp and
+;;;; claude-prolog/pipeline.lisp -- the claude-prolog git submodule, checked
+;;;; out alongside this file) and a browser to view the resulting HTML, same
+;;;; as the original.
 ;;;; Overrides: SAR_EPOCHS (200), SAR_LR (0.002d0), SBCL. (SAR_FORCE_BASE_MAP
 ;;;; is read by the individual stage scripts themselves, not by this
 ;;;; orchestrator, so it's unaffected by this port and isn't mentioned here.)
@@ -29,36 +30,21 @@
 ;;;; same external "sbcl --script <file> <args>" call the original made;
 ;;;; none of the underlying evidence/SMC/training/HTML-generation logic is
 ;;;; touched or reimplemented.
+;;;;
+;;;; The orchestration MECHANISM (launching a process, checking its exit
+;;;; code, reporting a failure, reading an env var, grouping/ordering
+;;;; SUBSTEP facts into a run) lives in claude-prolog/pipeline.lisp, not
+;;;; here -- none of that is specific to sarcoma, so it isn't duplicated
+;;;; here. This file supplies only what genuinely IS specific to this
+;;;; pipeline: the ENV-VALUE and SUBSTEP facts below, plus the one
+;;;; (?- (run-pipeline)) call.
 
 (let* ((root (make-pathname :name nil :type nil :defaults *load-truename*))
        (*default-pathname-defaults* root))
-  (load (merge-pathnames "claude-prolog/prolog-engine.lisp" root)))
+  (load (merge-pathnames "claude-prolog/prolog-engine.lisp" root))
+  (load (merge-pathnames "claude-prolog/pipeline.lisp" root)))
 
-(defparameter *sarcoma-root*
-  (make-pathname :name nil :type nil :defaults *load-truename*))
-(defparameter *sbcl*
-  (or (sb-ext:posix-getenv "SBCL") (namestring sb-ext:*runtime-pathname*)))
-
-(defun getenv-or (name default)
-  (or (sb-ext:posix-getenv name) default))
-(register-callable 'getenv-or)
-
-(defun run-external-stage (description script args)
-  "Exactly the original's RUN-STAGE, as a plain Lisp function LISP-EVAL can
-   call: print the banner, run SCRIPT (relative to *SARCOMA-ROOT*) via SBCL
-   with ARGS, and -- on a non-zero exit -- ERROR out exactly like the
-   original did, which aborts this whole script uncaught, same as before."
-  (format t "~%==> ~A~%" description)
-  (finish-output)
-  (let* ((process (sb-ext:run-program
-                    *sbcl* (append (list "--script" script) args)
-                    :search t :directory *sarcoma-root*
-                    :input t :output t :error t :wait t))
-         (code (sb-ext:process-exit-code process)))
-    (if (eql code 0)
-        t
-        (error "Stage ~A failed with exit code ~S." description code))))
-(register-callable 'run-external-stage)
+(setf *pipeline-root* (make-pathname :name nil :type nil :defaults *load-truename*))
 
 ;; --- the small "environment": computed paths + env-var overrides, exactly
 ;;     the original's LET* bindings, just as Prolog facts instead ---
@@ -96,25 +82,7 @@
              "sarcoma-specific/build-preferences-page.lisp" (?corpus ?model ?html))
     (env-value corpus ?corpus) (env-value model ?model) (env-value html ?html))
 
-;; --- the driver: group substeps by stage (SETOF sorts by stage number,
-;;     and again by position within a stage), run every stage in order,
-;;     every substep within a stage in order ---
-(<- (run-substeps nil) !)
-(<- (run-substeps ((?i ?d ?s ?a) . ?rest))
-    (lisp-eval t (run-external-stage ?d ?s ?a))
-    (run-substeps ?rest))
-
-(<- (run-stages nil) !)
-(<- (run-stages (?n . ?ns))
-    (setof (?i ?d ?s ?a) (substep ?n ?i ?d ?s ?a) ?subs)
-    (run-substeps ?subs)
-    (run-stages ?ns))
-
-(<- (run-pipeline)
-    (setof ?n (substep ?n ?i ?d ?s ?a) ?stages)
-    (run-stages ?stages))
-
 (?- (run-pipeline))
 (format t "~%Done. Open: ~A~%"
-        (merge-pathnames "output/cl-sarcoma-awrs-preferences.html" *sarcoma-root*))
+        (merge-pathnames "output/cl-sarcoma-awrs-preferences.html" *pipeline-root*))
 (sb-ext:exit)
