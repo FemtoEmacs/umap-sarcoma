@@ -79,7 +79,8 @@
     (env-value corpus ?corpus) (env-value model ?model)
     (env-value epochs ?epochs) (env-value rate ?rate))
 (<- (substep 5 1 "[5/5] Generate formatted HTML"
-             "sarcoma-specific/build-preferences-page.lisp" (?corpus ?model ?html))
+             "sarcoma-specific/build-preferences-page.lisp"
+	     (?corpus ?model ?html))
     (env-value corpus ?corpus) (env-value model ?model) (env-value html ?html))
 
 (?- (run-pipeline))

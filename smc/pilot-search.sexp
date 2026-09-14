@@ -9,7 +9,7 @@
           :maximum-observations 200
           :neighbors 20 :minimum-distance 0.4d0 :epochs 35
           :standardize t :minimum-points 5 :epsilon :automatic
-          :umap-seed 20260831 :smc-seed 20260908
+          :umap-seed 20260831 :smc-seed  20260908
           :no-validation-split t)
  ;; :NO-VALIDATION-SPLIT T (see smc-trainer/build-corpus.lisp) trains the
  ;; deployed Transformer on every one of the 200 rows, with no study held
