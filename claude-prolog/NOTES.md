@@ -1835,6 +1835,123 @@ and library predicates like `member/2`/`append/3`/`length/2`/
 ordinary user-defined Prolog clauses via `<-` once the engine is
 solid, rather than needing to be built-ins).
 
+### Status update: the roadmap above is partly done
+
+`findall/3`, `bagof/3`, `setof/3`, and `call/N` (the first four items
+above) were implemented and deployed after this roadmap section was
+written, along with a real fix to `eval-prolog-form` (it was mishandling
+a dereferenced variable bound to a list). This paragraph exists so this
+file doesn't actively mislead a future reader into re-doing work that's
+already there -- see `prolog-engine.lisp` itself for the current state
+of those predicates rather than trusting the roadmap prose above, which
+was left as originally written for its reasoning, not its status.
+
+## `pipeline.lisp`: a reusable external-pipeline library (2026-09-14)
+
+### Why this exists
+
+`sarcoma-setup.x` in `umap-sarcoma` was ported from a flat sequence of
+`sb-ext:run-program` calls to a Prolog port (`SUBSTEP/5` facts giving
+stage/position/description/script/args, grouped and ordered by
+`SETOF`). That first port moved the *sequencing and grouping* into
+Prolog but left the actual "launch a process, check its exit code,
+report a failure, read an env var" mechanism as ~20 lines of
+hand-written Lisp at the top of the script -- and Eduardo pointed out,
+correctly, that this made the port a wash: "you added 22 lines in Lisp
+as prefix, Prolog didn't represent a substantial gain... more Prolog,
+less Lisp." That mechanism isn't sarcoma-specific at all, so it
+belongs in claude-prolog itself, written once, not duplicated at the
+top of every consuming script -- and the actual success/failure
+DECISION (as opposed to the unavoidably-Lisp act of starting an OS
+process) is exactly the kind of small dispatch Prolog clause selection
+already does better than a Lisp `if`: one clause matching the literal
+exit code `0` (with a cut), one catch-all clause matching any `?code`
+that reports failure.
+
+### What it provides
+
+Load `pipeline.lisp` after `prolog-engine.lisp`. A consuming script
+then needs only:
+
+1. `(setf *pipeline-root* ...)` -- nothing in Lisp can introspect
+   "which directory is the SCRIPT THAT LOADED ME in" from inside a
+   library file (`*load-truename*` only reflects whichever file is
+   being loaded at the moment it's read), so the consuming script must
+   capture its own truename itself, once, at its own top level.
+   `*pipeline-sbcl*` also exists as a `defparameter`, defaulting to
+   `(getenv-or "SBCL" (namestring sb-ext:*runtime-pathname*))` --
+   preserving the original script's own documented `SBCL`
+   environment-variable override -- and can be `setf` again afterward
+   for a non-environment-variable override.
+2. `SUBSTEP/5` facts: `(substep StageNumber PositionInStage
+   Description ScriptPath ArgList)` -- the pipeline's actual content,
+   and the one part that's genuinely specific to each script, so it
+   stays in the script, not in this library.
+3. One call: `(?- (run-pipeline))`.
+
+Everything else -- grouping by stage, ordering within a stage,
+launching each external process, deciding success from failure, and
+reporting a failure clearly -- lives in `pipeline.lisp`, and every
+decision in it (as opposed to the mechanism of starting a process) is
+a Prolog clause, not a Lisp `if`:
+
+```
+(<- (handle-stage-result ?description 0) !)
+(<- (handle-stage-result ?description ?code)
+    (lisp-eval t (fail-stage ?description ?code)))
+```
+
+`getenv-or`, `announce-stage`, `run-process-raw`, and `fail-stage` are
+the small named Lisp callables underneath (`run-process-raw` is where
+`*pipeline-root*` is required to be set, erroring loudly if not,
+rather than silently falling back to the OS's own current directory).
+
+### Effect on `sarcoma-setup.x`
+
+With `pipeline.lisp` doing the generic work, `sarcoma-setup.x` itself
+shrank to just its own `ENV-VALUE`/`SUBSTEP` facts plus loading the two
+library files and calling `(?- (run-pipeline))` -- no
+`run-external-stage`, no `getenv-or` definition, no exit-code `if`, all
+of that now lives in claude-prolog and is shared by any future
+consuming script instead of being re-typed at the top of each one.
+
+### Verification
+
+Tested in isolation first, against two stub scripts (`step-ok.lisp`,
+always exits 0 and prints its args; `step-fail.lisp`, always exits 1)
+with a synthetic 2-stage/3-substep pipeline:
+- basic success path: correct stage/substep sequencing and argument
+  passing, `(?- (run-pipeline))` returns `yes` and the script's own
+  code after it still runs;
+- failure path: a synthetic 3-stage pipeline where stage 2 fails --
+  confirmed stage 3 never runs and the whole script aborts uncaught
+  with a non-zero exit code, matching the pre-library behavior exactly;
+- the `SBCL` environment-variable override: confirmed
+  `*pipeline-sbcl*` actually picks up `SBCL=/usr/bin/sbcl` from the
+  environment at load time (an earlier draft of this file computed
+  `*pipeline-sbcl*` before `getenv-or` was even defined and silently
+  ignored the environment variable entirely -- caught before deploying
+  anywhere, fixed by moving `getenv-or`'s definition first).
+
+Then re-verified end-to-end with the real `sarcoma-setup.x` (rewritten
+to load and use `pipeline.lisp`) against the same stubbed-pipeline
+smoke-test harness used for the original Prolog port: identical stage
+sequencing and arguments; `SAR_EPOCHS`/`SAR_LR` overrides still reach
+the Train Transformer stage; a forced failure in the stubbed
+`validate-corpus.lisp` still aborts before the Train/HTML stages run,
+exactly as before.
+
+### If this needs to be revisited
+
+The library assumes every stage is a `sbcl --script <path> <args...>`
+subprocess and that "exit code 0" is the only definition of success --
+true of every pipeline built on this so far, but a future consumer
+needing a non-SBCL subprocess, a success check other than exit code
+0, or output-capturing (`run-process-raw` currently wires
+`:output t :error t`, i.e. straight through to the terminal, not
+captured) would need either a parallel predicate or a small extension
+here, not a fork.
+
 ### A note on why `/areas/claude-prolog.md` exists in Eduardo's persistent
 ### memory now, and what it's for
 
