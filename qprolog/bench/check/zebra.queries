@@ -1,0 +1,6 @@
+top
+zebra(H)
+right_of(a,b,[b,a,c])
+next_to(a,b,[x,b,a])
+findall(X, next_to(X,y,[a,y,b,y,c]), L)
+houses(H)

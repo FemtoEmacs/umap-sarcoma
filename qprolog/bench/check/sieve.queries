@@ -1,0 +1,8 @@
+top
+findall(P, prime(P), L)
+findall(C, candidate(C), L)
+clean
+findall(P, prime(P), L)
+primes(30)
+findall(P, prime(P), L)
+findall(C, candidate(C), L)

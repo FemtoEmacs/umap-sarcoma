@@ -1,0 +1,27 @@
+;;;; zebra.lisp -- GENERATED from swi/zebra.pl by bench/pl2lispy.lisp; do not edit.
+
+(<- (top) (zebra ?_houses))
+(<- (zebra ?houses) (houses ?houses) (my_member (house red english _ _ _) ?houses)
+ (my_member (house _ spanish dog _ _) ?houses) (my_member (house green _ _ coffee _) ?houses)
+ (my_member (house _ ukrainian _ tea _) ?houses)
+ (right_of (house green _ _ _ _) (house ivory _ _ _ _) ?houses)
+ (my_member (house _ _ snails _ winstons) ?houses) (my_member (house yellow _ _ _ kools) ?houses)
+ (unify ?houses (_ _ (house _ _ _ milk _) _ _)) (unify ?houses ((house _ norwegian _ _ _) . _))
+ (next_to (house _ _ _ _ chesterfields) (house _ _ fox _ _) ?houses)
+ (next_to (house _ _ _ _ kools) (house _ _ horse _ _) ?houses)
+ (my_member (house _ _ _ orange_juice lucky_strikes) ?houses)
+ (my_member (house _ japanese _ _ parliaments) ?houses)
+ (next_to (house _ norwegian _ _ _) (house blue _ _ _ _) ?houses)
+ (my_member (house _ _ zebra _ _) ?houses) (my_member (house _ _ _ water _) ?houses))
+(<-
+ (houses
+  ((house _ _ _ _ _) (house _ _ _ _ _) (house _ _ _ _ _) (house _ _ _ _ _) (house _ _ _ _ _))))
+(<- (right_of ?a ?b (?b ?a . _)))
+(<- (right_of ?a ?b (_ . ?y)) (right_of ?a ?b ?y))
+(<- (next_to ?a ?b (?a ?b . _)))
+(<- (next_to ?a ?b (?b ?a . _)))
+(<- (next_to ?a ?b (_ . ?y)) (next_to ?a ?b ?y))
+(<- (my_member ?x (?x . _)))
+(<- (my_member ?x (_ . ?y)) (my_member ?x ?y))
+(<- (print_houses (?a . ?b)) ! (write ?a) (nl) (print_houses ?b))
+(<- (print_houses nil))

@@ -1,0 +1,6 @@
+top
+slist([1,2,3],0,S)
+slist([],5,S)
+rdet(3)
+rdet(0)
+p

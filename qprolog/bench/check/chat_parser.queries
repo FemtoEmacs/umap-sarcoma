@@ -1,0 +1,3 @@
+top
+findall(R, (my_string(S), determinate_say(S,R)), L)
+findall(S, my_string(S), L)

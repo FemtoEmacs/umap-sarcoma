@@ -2,7 +2,21 @@
 
 To build the html, run:
 
- sarcoma-setup-edinburgh.x
+ ./sarcoma-setup.x
+
+The setup script is written in Prolog and runs on `qprolog/` (a Common Lisp
+Prolog engine bundled in this repository; see `qprolog/README.md`). It replaces
+the earlier claude-prolog engine, and with it the Edinburgh-notation reader
+(`edinburgh-reader.lisp`) and the separate `sarcoma-setup-edinburgh.x` script,
+which are phased out. qprolog reads its own bracket syntax, `(<- head body...)`.
+Anyone who prefers Edinburgh (textbook) syntax can write ordinary `.pl` files
+and translate them with the translator `qprolog/tr.x`:
+
+    qprolog/tr.x my-facts.pl my-facts.lisp
+
+(`qprolog/qp my-facts.pl '(goal ?x)'` also accepts a `.pl` file directly, and
+translates it on the fly.) The syntax quirks of the translated form, such as
+`(:l a b c)` for a list of atoms, are listed in `qprolog/README.md`, section 4.
 
 This tour starts with the published sarcoma evidence UMAP and finishes with
 the `smc-trainer` Transformer insertion demonstration. Run every shell block

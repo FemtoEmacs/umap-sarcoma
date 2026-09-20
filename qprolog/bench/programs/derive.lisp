@@ -1,0 +1,16 @@
+;;;; derive.lisp -- GENERATED from swi/derive.pl by bench/pl2lispy.lisp; do not edit.
+
+(<- (top) (ops8) (log10) (divide10))
+(<- (ops8) (d (* (+ x 1) (* (+ (^ x 2) 2) (+ (^ x 3) 3))) x _))
+(<- (log10) (d (log (log (log (log (log (log (log (log (log (log x)))))))))) x _))
+(<- (divide10) (d (/ (/ (/ (/ (/ (/ (/ (/ (/ x x) x) x) x) x) x) x) x) x) x _))
+(<- (d (+ ?u ?v) ?x (+ ?du ?dv)) ! (d ?u ?x ?du) (d ?v ?x ?dv))
+(<- (d (- ?u ?v) ?x (- ?du ?dv)) ! (d ?u ?x ?du) (d ?v ?x ?dv))
+(<- (d (* ?u ?v) ?x (+ (* ?du ?v) (* ?u ?dv))) ! (d ?u ?x ?du) (d ?v ?x ?dv))
+(<- (d (/ ?u ?v) ?x (/ (- (* ?du ?v) (* ?u ?dv)) (^ ?v 2))) ! (d ?u ?x ?du) (d ?v ?x ?dv))
+(<- (d (^ ?u ?n) ?x (* (* ?du ?n) (^ ?u ?n1))) ! (integer ?n) (is ?n1 (- ?n 1)) (d ?u ?x ?du))
+(<- (d (- ?u) ?x (- ?du)) ! (d ?u ?x ?du))
+(<- (d (exp ?u) ?x (* (exp ?u) ?du)) ! (d ?u ?x ?du))
+(<- (d (log ?u) ?x (/ ?du ?u)) ! (d ?u ?x ?du))
+(<- (d ?x ?x 1) !)
+(<- (d _ _ 0))

@@ -15,3 +15,23 @@ Full 100-epoch training completed: training coordinate RMSE 1.050894; validation
 Run ./sarcoma-setup.x, or sbcl --script sarcoma-setup.x. SAR_EPOCHS defaults to 100 and SAR_LR to 0.002d0. Run sbcl --script tests/sarcoma-page-tests.lisp after rebuilding.
 
 Publication update: user rebuilt for 300 epochs. Saved training RMSE 0.5320441811 and validation RMSE 2.3999722563. Publishing includes the implementation, setup script and matching generated artifacts.
+
+## claude-prolog replaced by qprolog — 2026-09-20
+
+`sarcoma-setup.x` now runs on qprolog (`qprolog/`, a compiled, WAM-style Prolog engine in Common Lisp; see
+`qprolog/README.md`) instead of claude-prolog. The `claude-prolog/` directory is removed (its history stays in
+git), and with it the Edinburgh-notation reader (`edinburgh-reader.lisp`) and the separate
+`sarcoma-setup-edinburgh.x` / `sarcoma-setup.pl` pair, which existed only to demonstrate that reader. Anyone
+who wants Edinburgh syntax can translate ordinary `.pl` files with `qprolog/tr.x` (see `TOUR.md`).
+
+* Same pipeline: identical stage order, identical `SAR_EPOCHS` / `SAR_LR` / `SBCL` overrides, identical
+  stage scripts. Rebuilding with `SAR_EPOCHS=1` reproduces `output/cl-sarcoma-awrs-preferences.html` and
+  `output/sarcoma-full.html` byte for byte compared with the claude-prolog version.
+* The process-launching mechanism that used to be Lisp (`run-process-raw`, `getenv-or`, `fail-stage` in
+  `claude-prolog/pipeline.lisp`) is now Prolog on top of new qprolog predicates that run shell commands and
+  programs: `shell/1,2`, `shell_output/3`, `process_run/3,4`, `getenv/2`, `getenv_or/3`, `halt/1`
+  (`qprolog/src/system.lisp`, documented in `qprolog/README.md`, section 7). The orchestration library is
+  `qprolog/lib/pipeline.lisp`.
+* Predicate names use underscores (`env_value`, `run_pipeline`), which ordinary Prolog allows.
+* A failing stage prints `Stage <description> failed with exit code N.` and exits with status 1 (before: a Lisp
+  backtrace).

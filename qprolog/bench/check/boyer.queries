@@ -1,0 +1,10 @@
+top
+wff(W), rewrite(W,N)
+boyer_member(a,[b,a,c])
+truep(t,[])
+falsep(f,[])
+tautology(t,[],[])
+tautology(if(a,t,t),[],[])
+tautology(if(a,f,t),[],[])
+rewrite(equal(plus(zero,x),x),R)
+rewrite(append(append(a,b),c),R)

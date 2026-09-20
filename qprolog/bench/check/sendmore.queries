@@ -1,0 +1,6 @@
+top
+findall(D, digit(D), L)
+findall(D, leftdigit(D), L)
+sumdigit(0,5,7,Y,C)
+sumdigit(1,9,9,Y,C)
+digit(D), digit(E), D =\= E, sumdigit(0, D, E, Y, C1), digit(N), N =\= Y, N =\= E, N =\= D, digit(R), R =\= N, R =\= Y, R =\= E, R =\= D, sumdigit(C1, N, R, E, C2), digit(O), O =\= R, O =\= N, O =\= Y, O =\= E, O =\= D, sumdigit(C2, E, O, N, C3), leftdigit(S), S =\= O, S =\= R, S =\= N, S =\= Y, S =\= E, S =\= D, leftdigit(M), M =\= S, M =\= O, M =\= R, M =\= N, M =\= Y, M =\= E, M =\= D, sumdigit(C3, S, M, O, M)

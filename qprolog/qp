@@ -1,0 +1,5 @@
+#!/bin/sh
+# ./qp FILE [GOAL] [-a]   -- run a qprolog program.  GOAL defaults to top.  -a: all solutions.
+here=$(cd "$(dirname "$0")" && pwd)
+exec sbcl --noinform --dynamic-space-size 4GB --control-stack-size 512MB --non-interactive \
+     --load "$here/qp.lisp" --end-toplevel-options "$@"

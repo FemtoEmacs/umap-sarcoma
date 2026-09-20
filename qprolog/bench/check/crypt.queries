@@ -1,0 +1,8 @@
+top
+mult([1,2,3],4,R)
+mult([9,9],9,R)
+sum([1,2],[3,4],S)
+sum([9,9,9],[1],S)
+findall(X, odd(X), L)
+findall(X, lefteven(X), L)
+odd(A), even(B), even(C), even(E), mult([C,B,A],E,[I,H,G,F|X]), lefteven(F), odd(G), even(H), even(I), zero(X), lefteven(D), mult([C,B,A],D,[L,K,J|Y]), lefteven(J), odd(K), even(L), zero(Y), sum([I,H,G,F],[0,L,K,J],[P,O,N,M|Z]), odd(M), odd(N), even(O), even(P), zero(Z)

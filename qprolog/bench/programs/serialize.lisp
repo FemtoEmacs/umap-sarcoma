@@ -1,0 +1,17 @@
+;;;; serialize.lisp -- GENERATED from swi/serialize.pl by bench/pl2lispy.lisp; do not edit.
+
+(<- (top) (serialise))
+(<- (serialise) (atom_codes |ABLE WAS I ERE I SAW ELBA| ?codes) (serialise ?codes _))
+(<- (serialise ?l ?r) (pairlists ?l ?r ?a) (arrange ?a ?t) (numbered ?t 1 _))
+(<- (pairlists (?x . ?l) (?y . ?r) ((pair ?x ?y) . ?a)) (pairlists ?l ?r ?a))
+(<- (pairlists nil nil nil))
+(<- (arrange (?x . ?l) (tree ?t1 ?x ?t2)) (split ?l ?x ?l1 ?l2) (arrange ?l1 ?t1) (arrange ?l2 ?t2))
+(<- (arrange nil void))
+(<- (split (?x . ?l) ?x ?l1 ?l2) ! (split ?l ?x ?l1 ?l2))
+(<- (split (?x . ?l) ?y (?x . ?l1) ?l2) (before ?x ?y) ! (split ?l ?y ?l1 ?l2))
+(<- (split (?x . ?l) ?y ?l1 (?x . ?l2)) (before ?y ?x) ! (split ?l ?y ?l1 ?l2))
+(<- (split nil _ nil nil))
+(<- (before (pair ?x1 _) (pair ?x2 _)) (< ?x1 ?x2))
+(<- (numbered (tree ?t1 (pair _ ?n1) ?t2) ?n0 ?n) (numbered ?t1 ?n0 ?n1) (is ?n2 (+ ?n1 1))
+ (numbered ?t2 ?n2 ?n))
+(<- (numbered void ?n ?n))

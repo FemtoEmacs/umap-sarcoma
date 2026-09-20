@@ -1,0 +1,14 @@
+top
+ops8
+log10
+divide10
+d(+(x,1),x,R)
+d(*(x,x),x,R)
+d(^(x,3),x,R)
+d(-(x),x,R)
+d(exp(x),x,R)
+d(log(log(x)),x,R)
+d(/(x,x),x,R)
+d(*(+(x,1),*(+(^(x,2),2),+(^(x,3),3))),x,R)
+d(log(log(log(log(log(log(log(log(log(log(x)))))))))),x,R)
+d(/(/(/(/(/(/(/(/(/(x,x),x),x),x),x),x),x),x),x),x,R)

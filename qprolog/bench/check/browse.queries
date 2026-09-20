@@ -1,0 +1,11 @@
+top
+list_to_length([a,b,c,d],N)
+split(1,[a,b,c,d],X,R)
+randomize([a,b,c,d,e,f],R,21)
+get_pats(3,[[a],[b]],R)
+init(6,3,2,[[a,b],[b,a]],S), randomize(S,R,21)
+findall(N, (init(100,10,4,[[a,a,a,b,b,b,b,a,a,a,a,a,b,b,a,a,a],[a,a,b,b,b,b,a,a,[a,a],[b,b]],[a,a,a,b,[b,a],b,a,b,a]],S), randomize(S,R,21), list_to_length(R,N)), L)
+match([a,b,c],[a,b,c])
+match([a,b,c],[a,X,c])
+match([a,b,c],[a,star(Y),c])
+s_concat(X,Y,[a,b])

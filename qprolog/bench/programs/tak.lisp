@@ -1,0 +1,7 @@
+;;;; tak.lisp -- GENERATED from swi/tak.pl by bench/pl2lispy.lisp; do not edit.
+
+(<- (top) (tak))
+(<- (tak) (tak 18 12 6 _))
+(<- (tak ?x ?y ?z ?a) (<= ?x ?y) (unify ?z ?a))
+(<- (tak ?x ?y ?z ?a) (> ?x ?y) (is ?x1 (- ?x 1)) (tak ?x1 ?y ?z ?a1) (is ?y1 (- ?y 1))
+ (tak ?y1 ?z ?x ?a2) (is ?z1 (- ?z 1)) (tak ?z1 ?x ?y ?a3) (tak ?a1 ?a2 ?a3 ?a))
